@@ -1,0 +1,62 @@
+{
+  "manifest": {
+    "episode_id": "ep_0f3a0f3a0f3a0f3a0f3a0f3a",
+    "schema_version": "0.2.0",
+    "chain": "solana",
+    "cluster": "devnet",
+    "asset_id": "asset_9281",
+    "entity_id": "9xQeWvG816bUx9EPfEZEoPqdNaE4gqCNTNqmbFnfZoxM",
+    "contributor": "9xQeWvG816bUx9EPfEZEoPqdNaE4gqCNTNqmbFnfZoxM",
+    "bounty_id": "bounty_004",
+    "task": "cup_pick_and_place",
+    "duration_s": 17.2,
+    "recorded_at": 1757030400,
+    "client": {
+      "type": "android_native",
+      "version": "0.1.0",
+      "ua_class": "other"
+    },
+    "capture": {
+      "video": {
+        "codec": "video/mp4",
+        "width": 1280,
+        "height": 720,
+        "fps_nominal": 30,
+        "fps_observed": 29.7,
+        "frame_timing": "recorder_anchored",
+        "device_label": "back",
+        "fov_deg": null
+      },
+      "audio": null,
+      "imu": {
+        "rate_hz_observed": 98.4,
+        "samples": 1692,
+        "imu_frame": "android_sensor_event",
+        "rotation_convention": "android_gyro_rad_s_xyz",
+        "screen_orientation": "portrait"
+      }
+    },
+    "streams": {
+      "rgb": {
+        "sha256": "0xabababababababababababababababababababababababababababababababab",
+        "bytes": 1234567,
+        "content_type": "video/mp4"
+      },
+      "imu": {
+        "sha256": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "bytes": 47396,
+        "content_type": "application/octet-stream"
+      }
+    },
+    "sync": {
+      "method": "recorder_anchored",
+      "measured_skew_ms": 20.5
+    },
+    "outcome": "success",
+    "self_report": {
+      "task_completed": true,
+      "notes": "café ☕"
+    }
+  },
+  "manifest_hash": "0x866b50a87b9a64d3d939e213f3a106568d9abaebcdacb2c5f2a72d2bd2561d3a"
+}
