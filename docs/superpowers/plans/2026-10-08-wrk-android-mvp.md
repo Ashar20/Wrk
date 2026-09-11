@@ -201,6 +201,8 @@ Manifest fields follow `/Users/silas/worldmod/web/src/lib/manifest/types.ts` (sc
 
 ### Task 6: Server — Android IMU conventions and replay/real fixtures
 
+> **Status note:** Android X/Y/Z gyro axes equal the web beta/gamma/alpha device axes, so the client converts rad/s→deg/s and **no server axis change is needed**. Hand detection is dropped (framing optional). Measured on recorded fixtures: real 71.4/70.2, replay 4.2, so seed bounties use min_plausibility 0.60, not the spec's 0.75.
+
 **Files:**
 - Modify: `server/src/lib/validator/score.ts` and/or `analysis/correlate.ts` (axis mapping), `server/src/lib/manifest/types.ts`
 - Create: `server/test/fixtures/{real,replay}/…`, `server/src/lib/validator/android-axes.test.ts`
