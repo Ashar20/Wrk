@@ -27,10 +27,19 @@ const paying = new Set<string>();
  */
 export async function runPipeline(
   deps: PipelineDeps,
-  args: { episodeId: string; bounty: Bounty; manifest: Manifest; streams: StreamBytes[]; anchorSignature: string | null },
+  args: {
+    episodeId: string;
+    bounty: Bounty;
+    manifest: Manifest;
+    streams: StreamBytes[];
+    anchorSignature: string | null;
+    /** Set for email accounts: the server signs the memo for them. */
+    custodialSecret?: Uint8Array | null;
+  },
 ): Promise<void> {
   const { store, chain } = deps;
-  const { episodeId, bounty, manifest, streams, anchorSignature } = args;
+  const { episodeId, bounty, manifest, streams, custodialSecret } = args;
+  let anchorSignature = args.anchorSignature;
   try {
     const video = streams.find((s) => s.kind === "rgb");
     const imu = streams.find((s) => s.kind === "imu");
@@ -72,6 +81,11 @@ export async function runPipeline(
     const reasons = [...decision.reasons, ...validation.failures];
 
     let anchor = rec.anchor;
+    if (chain && rec.contributor && !anchorSignature && custodialSecret) {
+      anchorSignature = await chain
+        .anchor({ signerSecret: custodialSecret, memo: memoText(bounty.bounty_id, episodeId, rec.manifest_hash) })
+        .catch(() => null);
+    }
     if (chain && rec.contributor) {
       if (!anchorSignature) {
         anchor = undefined;

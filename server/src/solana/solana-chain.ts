@@ -11,7 +11,7 @@ import {
   getAssociatedTokenAddressSync,
   getMint,
 } from "@solana/spl-token";
-import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { Transaction, TransactionInstruction, sendAndConfirmTransaction } from "@solana/web3.js";
 import type { ChainPort } from "./chain";
 
 const MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
@@ -38,8 +38,9 @@ export class SolanaChain implements ChainPort {
       maxSupportedTransactionVersion: 0,
     });
     if (!tx || tx.meta?.err) return false;
-    const signer = tx.transaction.message.accountKeys.find((k) => k.signer)?.pubkey.toBase58();
-    if (signer !== expected.signer) return false;
+    // The contributor must have signed; the fee payer may be someone else (the treasury sponsors email accounts).
+    const signed = tx.transaction.message.accountKeys.some((k) => k.signer && k.pubkey.toBase58() === expected.signer);
+    if (!signed) return false;
     const ixs = tx.transaction.message.instructions as Array<ParsedInstruction | PartiallyDecodedInstruction>;
     return ixs.some(
       (ix) =>
@@ -48,6 +49,18 @@ export class SolanaChain implements ChainPort {
         typeof ix.parsed === "string" &&
         ix.parsed === expected.memo,
     );
+  }
+
+  async anchor({ signerSecret, memo }: { signerSecret: Uint8Array; memo: string }) {
+    const signer = Keypair.fromSecretKey(signerSecret);
+    const tx = new Transaction().add(
+      new TransactionInstruction({
+        keys: [{ pubkey: signer.publicKey, isSigner: true, isWritable: false }],
+        programId: new PublicKey(MEMO_PROGRAM),
+        data: Buffer.from(memo, "utf8"),
+      }),
+    );
+    return sendAndConfirmTransaction(this.conn, tx, [this.cfg.treasury, signer]);
   }
 
   async pay({ contributor, amountUsdc }: { contributor: string; amountUsdc: number; episodeId: string }) {

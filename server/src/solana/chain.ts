@@ -3,6 +3,8 @@ export interface ChainPort {
   cluster: string;
   /** True when `signature` is a confirmed transaction signed by `signer` carrying exactly `memo`. */
   verifyMemo(signature: string, expected: { signer: string; memo: string }): Promise<boolean>;
+  /** Send the memo on behalf of an email-account user. Fees are paid by the treasury. Returns the signature. */
+  anchor(args: { signerSecret: Uint8Array; memo: string }): Promise<string>;
   /** Transfer reward tokens to the contributor. Returns the payout transaction signature. */
   pay(args: { contributor: string; amountUsdc: number; episodeId: string }): Promise<string>;
 }

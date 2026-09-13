@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import Busboy from "busboy";
 import { BOUNTIES } from "./bounties";
 import { runPipeline, type PipelineDeps } from "./pipeline";
+import { AuthError, type Accounts } from "./accounts";
 import type { EpisodeRecord } from "./store";
 import { redactThresholds } from "@/lib/market/types";
 import type { Manifest } from "@/lib/manifest";
@@ -49,8 +50,27 @@ export function publicEpisode(e: EpisodeRecord) {
   };
 }
 
-export function createHttpServer(deps: PipelineDeps): Server {
-  const { store } = deps;
+export type HttpDeps = PipelineDeps & { accounts: Accounts };
+
+const bearer = (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
+
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let n = 0;
+  for await (const c of req) {
+    n += (c as Buffer).length;
+    if (n > 10_000) throw new AuthError("Request too large.", 413);
+    chunks.push(c as Buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  } catch {
+    throw new AuthError("Body is not valid JSON.");
+  }
+}
+
+export function createHttpServer(deps: HttpDeps): Server {
+  const { store, accounts } = deps;
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://x");
@@ -58,6 +78,20 @@ export function createHttpServer(deps: PipelineDeps): Server {
 
       if (req.method === "GET" && url.pathname === "/bounties") {
         return send(res, 200, { bounties: BOUNTIES.map(redactThresholds) });
+      }
+
+      if (req.method === "POST" && url.pathname === "/auth/email/start") {
+        await accounts.start(String((await readJson(req)).email ?? ""));
+        return send(res, 200, { sent: true });
+      }
+      if (req.method === "POST" && url.pathname === "/auth/email/verify") {
+        const b = await readJson(req);
+        const r = accounts.verify(String(b.email ?? ""), String(b.code ?? ""));
+        return send(res, 200, { token: r.token, address: r.address, email: r.email });
+      }
+      if (req.method === "GET" && url.pathname === "/me") {
+        const me = accounts.session(bearer(req));
+        return me ? send(res, 200, me) : send(res, 401, { error: "Not signed in." });
       }
 
       const m = /^\/episodes\/([\w-]+)$/.exec(url.pathname);
@@ -85,6 +119,12 @@ export function createHttpServer(deps: PipelineDeps): Server {
         // Idempotent: a retried upload returns what is already there and never rescoring or repaying.
         const existing = store.get(episodeId);
         if (existing) return send(res, 200, publicEpisode(existing));
+
+        // An email session may only submit as its own payment account.
+        const token = bearer(req);
+        const me = accounts.session(token);
+        if (token && !me) return send(res, 401, { error: "Your sign-in expired. Sign in again." });
+        if (me && manifest.contributor !== me.address) return send(res, 403, { error: "This episode belongs to a different payment account." });
 
         const bounty = BOUNTIES.find((b) => b.bounty_id === manifest.bounty_id);
         if (!bounty) return send(res, 404, { error: "No such bounty." });
@@ -129,13 +169,14 @@ export function createHttpServer(deps: PipelineDeps): Server {
           manifest,
           streams,
           anchorSignature: fields.anchor_signature || null,
+          custodialSecret: me && !fields.anchor_signature ? accounts.secretFor(me.email) : null,
         });
         return send(res, 202, publicEpisode(rec));
       }
 
       send(res, 404, { error: "Not found." });
     } catch (err) {
-      const status = (err as { status?: number }).status ?? 500;
+      const status = err instanceof AuthError ? err.status : ((err as { status?: number }).status ?? 500);
       send(res, status, { error: err instanceof Error ? err.message : String(err) });
     }
   });

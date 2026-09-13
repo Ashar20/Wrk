@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { Keypair } from "@solana/web3.js";
 import { createHttpServer } from "./http";
 import { Store } from "./store";
+import { Accounts } from "./accounts";
+import { ConsoleMailer, ResendMailer } from "./mailer";
 import { SolanaChain } from "./solana/solana-chain";
 import { scoreEpisode } from "@/lib/validator/score";
 
@@ -21,7 +23,14 @@ if (process.env.WRK_MINT && process.env.WRK_TREASURY_KEYPAIR) {
   console.warn("WRK_MINT / WRK_TREASURY_KEYPAIR not set: episodes are scored but never anchored or paid.");
 }
 
+const dataDir = process.env.WRK_DATA_DIR ?? "data";
+const mailer = process.env.RESEND_API_KEY && process.env.WRK_MAIL_FROM
+  ? new ResendMailer(process.env.RESEND_API_KEY, process.env.WRK_MAIL_FROM)
+  : new ConsoleMailer();
+if (mailer instanceof ConsoleMailer) console.warn("RESEND_API_KEY not set: sign-in codes are printed here instead of emailed.");
+
 createHttpServer({
+  accounts: new Accounts(dataDir, mailer),
   store,
   chain,
   score: scoreEpisode,
