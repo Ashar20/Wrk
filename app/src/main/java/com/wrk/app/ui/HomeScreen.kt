@@ -17,6 +17,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.wrk.app.account.Account
+import com.wrk.app.account.label
 import com.wrk.app.data.Bounty
 import com.wrk.app.design.Chip
 import com.wrk.app.design.Figure
@@ -28,7 +31,14 @@ import com.wrk.app.design.WrkShape
 import com.wrk.app.design.WrkType
 
 @Composable
-fun HomeScreen(bounties: List<Bounty>, earnedUsd: Double, onOpen: (Bounty) -> Unit, modifier: Modifier = Modifier) {
+fun HomeScreen(
+    bounties: List<Bounty>,
+    earnedUsd: Double,
+    account: Account?,
+    onAccount: () -> Unit,
+    onOpen: (Bounty) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var filter by remember { mutableStateOf<String?>(null) }
     val shown = bounties.filter { filter == null || it.task == filter }
     LazyColumn(
@@ -41,6 +51,20 @@ fun HomeScreen(bounties: List<Bounty>, earnedUsd: Double, onOpen: (Bounty) -> Un
                 Text("Wrk", style = WrkType.title, color = WrkColors.foreground)
                 Tag("Earned so far", modifier = Modifier.padding(top = 20.dp))
                 Figure(earnedUsd, WrkType.figureLead, knockDownCents = true)
+            }
+        }
+        item {
+            if (account == null) {
+                FieldCard(WrkColors.butter, Modifier.fillMaxWidth(), onClick = onAccount) {
+                    Column {
+                        Text("Set up payment account", style = WrkType.title.copy(fontSize = 17.sp), color = WrkColors.butterInk)
+                        Text("Add where your earnings should go. Takes a minute.", style = WrkType.body, color = WrkColors.butterInk)
+                    }
+                }
+            } else {
+                PaperCard(Modifier.fillMaxWidth(), onClick = onAccount) {
+                    Column { Tag("Payouts go to"); Text(account.label, style = WrkType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = WrkColors.foreground) }
+                }
             }
         }
         item {

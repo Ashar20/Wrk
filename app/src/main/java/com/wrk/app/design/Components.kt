@@ -214,3 +214,31 @@ private fun DockItem(tab: DockTab, active: Boolean, onClick: () -> Unit, modifie
         Text(tab.label, style = WrkType.label, color = c)
     }
 }
+
+/** Pill-shaped text input on paper, in the app's type. */
+@Composable
+fun WrkTextField(
+    value: String,
+    onChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    keyboardType: androidx.compose.ui.text.input.KeyboardType = androidx.compose.ui.text.input.KeyboardType.Text,
+    enabled: Boolean = true,
+) {
+    androidx.compose.foundation.text.BasicTextField(
+        value = value,
+        onValueChange = onChange,
+        enabled = enabled,
+        singleLine = true,
+        textStyle = WrkType.body.copy(color = WrkColors.foreground, fontSize = 16.sp),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboardType),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(WrkColors.foreground),
+        modifier = modifier.fillMaxWidth().clip(Pill).background(WrkColors.paper).padding(horizontal = 20.dp, vertical = 16.dp),
+        decorationBox = { inner ->
+            Box {
+                if (value.isEmpty()) Text(placeholder, style = WrkType.body.copy(fontSize = 16.sp), color = WrkColors.subtle)
+                inner()
+            }
+        },
+    )
+}
