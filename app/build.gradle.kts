@@ -56,6 +56,12 @@ dependencies {
     implementation("com.solanamobile:rpc-core:0.2.7")
     implementation("io.github.funkatronics:multimult:0.2.3")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-video:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
