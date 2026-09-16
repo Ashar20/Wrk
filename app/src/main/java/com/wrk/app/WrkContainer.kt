@@ -8,13 +8,27 @@ import com.wrk.app.episode.EpisodeStore
 import com.wrk.app.upload.EpisodeApi
 import com.wrk.app.upload.HttpEpisodeApi
 import com.wrk.app.upload.SubmissionProcessor
+import com.wrk.app.episode.RawCapture
+import com.wrk.app.data.Bounty
+import com.wrk.app.wallet.SolanaRpc
+import com.wrk.app.wallet.WalletManager
 import java.io.File
+
+/** A take that has been recorded but not yet reviewed or submitted. */
+class PendingCapture(val episodeId: String, val raw: RawCapture, val bounty: Bounty)
 
 /** Hand-wired dependencies, shared by the UI and the background upload worker. */
 class WrkContainer private constructor(private val app: Context) {
     val accounts = AccountStore(EncryptedKeyValue(app))
     val episodes = EpisodeStore(File(app.filesDir, "episodes"))
     val api: EpisodeApi = HttpEpisodeApi(BuildConfig.API_BASE)
+    val wallet = WalletManager(accounts)
+    val rpc = SolanaRpc(BuildConfig.SOLANA_RPC)
+
+    /** Survives navigation between capture and review; deliberately not persisted (the video already is). */
+    @Volatile var pending: PendingCapture? = null
+
+    init { episodes.pruneOrphans() }
 
     fun processor() = SubmissionProcessor(episodes, api, bearerFor = { contributor ->
         // Only an email session for this very payment account may speak for it.

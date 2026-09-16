@@ -15,6 +15,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         // Validator service. Debug uses `adb reverse tcp:8787 tcp:8787`; release is set at publish time.
+        buildConfigField("String", "SOLANA_RPC", "\"${project.findProperty("wrk.solanaRpc") ?: "https://api.devnet.solana.com"}\"")
+        buildConfigField("String", "SOLANA_CLUSTER", "\"${project.findProperty("wrk.cluster") ?: "devnet"}\"")
         buildConfigField("String", "API_BASE", "\"${project.findProperty("wrk.apiBase") ?: "http://127.0.0.1:8787"}\"")
     }
 

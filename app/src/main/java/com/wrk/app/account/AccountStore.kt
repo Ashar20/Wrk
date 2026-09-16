@@ -53,6 +53,9 @@ class AccountStore(private val kv: KeyValue) {
         if (!keepWalletToken) kv.remove(MWA_TOKEN)
     }
 
+    /** Stable random id for this install; becomes the episode's asset id. */
+    fun installId(): String = kv.get("install_id") ?: java.util.UUID.randomUUID().toString().replace("-", "").take(12).also { kv.put("install_id", it) }
+
     var walletAuthToken: String?
         get() = kv.get(MWA_TOKEN)
         set(v) { if (v == null) kv.remove(MWA_TOKEN) else kv.put(MWA_TOKEN, v) }
