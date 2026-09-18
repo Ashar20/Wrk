@@ -1,8 +1,8 @@
 #!/bin/sh
-# Copies the reference TS modules to a temp dir (adding .ts import suffixes so
+# Needs REF_SRC pointing at the reference implementation. Copies the reference TS modules to a temp dir (adding .ts import suffixes so
 # Node can strip types natively) and regenerates golden vectors.
 set -e
-R=${REF_SRC:-/Users/silas/worldmod/web/src/lib}
+R=${REF_SRC:?set REF_SRC to the reference TypeScript lib directory}
 T=$(mktemp -d)
 mkdir -p "$T/manifest" "$T/capture"
 cp "$R/manifest/canonicalize.ts" "$R/manifest/hash.ts" "$T/manifest/"
