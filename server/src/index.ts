@@ -5,7 +5,7 @@ import { Store } from "./store";
 import { Accounts } from "./accounts";
 import { ConsoleMailer, ResendMailer } from "./mailer";
 import { SolanaChain } from "./solana/solana-chain";
-import { scoreEpisode } from "@/lib/validator/score";
+import { createWorkerScorer } from "./scorer";
 
 const port = Number(process.env.PORT ?? 8787);
 const store = new Store(process.env.WRK_DATA_DIR ?? "data");
@@ -33,7 +33,7 @@ createHttpServer({
   accounts: new Accounts(dataDir, mailer),
   store,
   chain,
-  score: scoreEpisode,
+  score: createWorkerScorer(),
   requireAnchor: process.env.WRK_REQUIRE_ANCHOR !== "0",
   validatorId: chain ? null : null,
 }).listen(port, () => console.log(`Wrk validator listening on :${port}`));
