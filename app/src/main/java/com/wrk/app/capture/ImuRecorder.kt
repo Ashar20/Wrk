@@ -23,8 +23,11 @@ class ImuRecorder(context: Context) : SensorEventListener {
         val t = HandlerThread("wrk-imu").also { it.start() }
         thread = t
         val h = Handler(t.looper)
-        sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_FASTEST, h)
-        sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE), SensorManager.SENSOR_DELAY_FASTEST, h)
+        // 200 Hz is the ceiling Android 12+ allows without the high-sampling-rate permission, and ~2x what scoring needs.
+        // Asking for SENSOR_DELAY_FASTEST throws SecurityException on those versions.
+        val ok = sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), PERIOD_US, h) &&
+            sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE), PERIOD_US, h)
+        if (!ok) { sm.unregisterListener(this); thread?.quitSafely(); thread = null; throw IllegalStateException("Motion sensors couldn't be started.") }
     }
 
     /** Called at the instant the video starts so both streams share t = 0. */
@@ -49,6 +52,7 @@ class ImuRecorder(context: Context) : SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     companion object {
+        private const val PERIOD_US = 5_000
         fun hasGyroscope(context: Context): Boolean =
             (context.getSystemService(Context.SENSOR_SERVICE) as SensorManager).getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null
     }

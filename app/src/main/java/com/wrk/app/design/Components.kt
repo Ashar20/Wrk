@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -115,7 +117,7 @@ fun Figure(
             append("$$dollars")
             withStyle(SpanStyle(color = if (knockDownCents) color.copy(alpha = 0.62f) else color)) { append(".$cents") }
             if (unit != null) {
-                withStyle(SpanStyle(fontSize = maxOf(10f, style.fontSize.value * 0.34f).sp, color = color.copy(alpha = 0.72f))) { append("  $unit") }
+                withStyle(SpanStyle(fontSize = maxOf(10f, style.fontSize.value * 0.34f).sp, color = color.copy(alpha = 0.72f), letterSpacing = 0.02.em)) { append("\u2002$unit") }
             }
         },
         style = style,
@@ -190,7 +192,7 @@ fun Dock(selected: DockTab?, onSelect: (DockTab) -> Unit, onDisc: () -> Unit, mo
             }
         }
         Box(
-            Modifier.align(Alignment.TopCenter).padding(top = (-24).dp).size(68.dp)
+            Modifier.align(Alignment.TopCenter).offset(y = (-24).dp).size(68.dp)
                 .lift(CircleShape).clip(CircleShape).background(WrkColors.bone).padding(5.dp)
                 .clip(CircleShape).background(WrkColors.ink).clickable(role = Role.Button, onClick = onDisc),
             contentAlignment = Alignment.Center,

@@ -135,7 +135,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val view = remember { PreviewView(context).apply { keepScreenOn = true; scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    val view = remember { PreviewView(context).apply { implementationMode = PreviewView.ImplementationMode.COMPATIBLE; keepScreenOn = true; scaleType = PreviewView.ScaleType.FILL_CENTER } }
     val video = remember { VideoRecorder(context) }
     val controller = remember { CaptureController(context, video, ImuRecorder(context)) }
     var phase by remember { mutableStateOf<Phase>(Phase.Ready) }
@@ -210,7 +210,10 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
                         onCaptured(PendingCapture(id, raw, bounty))
                     } catch (e: CaptureException) {
                         problem = e.message; phase = Phase.Ready; container.episodes.delete(id)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        container.episodes.delete(id); throw e
                     } catch (e: Exception) {
+                        android.util.Log.e("WrkCapture", "recording failed", e)
                         problem = "Something went wrong while recording. Try again."; phase = Phase.Ready; container.episodes.delete(id)
                     }
                 }
