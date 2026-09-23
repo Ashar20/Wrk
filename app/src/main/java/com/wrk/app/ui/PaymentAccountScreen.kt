@@ -48,8 +48,10 @@ fun PaymentAccountScreen(
     onConnectWallet: suspend () -> WalletResult,
     onSignedIn: (Account) -> Unit,
     onSignOut: () -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    /** First-launch sign-in: no way back, welcoming copy. */
+    onboarding: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
@@ -66,8 +68,8 @@ fun PaymentAccountScreen(
     }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WrkShape.gutter), verticalArrangement = Arrangement.spacedBy(WrkShape.stack)) {
-        PaperButton("Back", onBack)
-        Text("Payment account", style = WrkType.headline.copy(fontSize = 30.sp), color = WrkColors.foreground, modifier = Modifier.padding(top = 8.dp))
+        if (onBack != null) PaperButton("Back", onBack)
+        Text(if (onboarding) "Welcome to Wrk" else "Payment account", style = WrkType.headline.copy(fontSize = 30.sp), color = WrkColors.foreground, modifier = Modifier.padding(top = 8.dp))
 
         if (current != null) {
             PaperCard(Modifier.fillMaxWidth()) {
@@ -81,7 +83,8 @@ fun PaymentAccountScreen(
         }
 
         Text(
-            "Tell us where to send what you earn. You don't need a crypto wallet.",
+            if (onboarding) "Sign in to start earning for short recordings of everyday tasks. You don't need a crypto wallet."
+            else "Tell us where to send what you earn. You don't need a crypto wallet.",
             style = WrkType.body, color = WrkColors.muted,
         )
 
@@ -106,7 +109,7 @@ fun PaymentAccountScreen(
 
         Spacer(Modifier.height(4.dp))
         Tag("Already have a Solana wallet app?")
-        PaperButton("Use my wallet", {
+        PaperButton(if (onboarding) "Sign in with my wallet" else "Use my wallet", {
             scope.launch {
                 busy = true; problem = null
                 when (val r = onConnectWallet()) {

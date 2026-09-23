@@ -73,10 +73,24 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val earned by produceState(0.0) { while (true) { value = c.episodes.earnedUsd; delay(2000) } }
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
 
-    fun goHome() { nav.navigate("home") { popUpTo("home") { inclusive = true } } }
+    // Sign in first: a signed-out launch lands on login, never on Home.
+    val start = remember { if (c.accounts.load() == null) "login" else "home" }
+
+    fun goHome() { nav.navigate("home") { popUpTo(nav.graph.id) { inclusive = true } } }
 
     Column(Modifier.fillMaxSize().background(WrkColors.bone).statusBarsPadding()) {
-        NavHost(nav, startDestination = "home", modifier = Modifier.weight(1f)) {
+        NavHost(nav, startDestination = start, modifier = Modifier.weight(1f)) {
+            composable("login") {
+                PaymentAccountScreen(
+                    current = null,
+                    auth = auth,
+                    onConnectWallet = { c.wallet.connect(sender) },
+                    onSignedIn = { c.accounts.save(it); account = it; goHome() },
+                    onSignOut = {},
+                    onBack = null,
+                    onboarding = true,
+                )
+            }
             composable("home") {
                 HomeScreen(bounties, earned, account, onAccount = { nav.navigate("account") }, onOpen = { nav.navigate("bounty/${it.id}") })
             }
@@ -132,13 +146,14 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                         scope.launch {
                             if (account is Account.Wallet) c.wallet.disconnect(sender)
                             c.accounts.clear(); account = null
+                            nav.navigate("login") { popUpTo(0) }
                         }
                     },
                     onBack = { nav.popBackStack() },
                 )
             }
         }
-        Dock(
+        if (route != "login") Dock(
             selected = when { route == "activity" -> DockTab.Activity; route == "home" -> DockTab.Tasks; else -> null },
             onSelect = { tab -> if (tab == DockTab.Tasks) goHome() else nav.navigate("activity") { popUpTo("home") } },
             onDisc = { bounties.firstOrNull()?.let { nav.navigate("bounty/${it.id}") { popUpTo("home") } } },
