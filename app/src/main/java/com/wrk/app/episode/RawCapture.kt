@@ -11,6 +11,8 @@ data class RawCapture(
     val fpsNominal: Int,
     /** Null when the platform could not report it; never guessed. */
     val fpsObserved: Double?,
+    /** Frames actually in the file, when the platform can count them. */
+    val frameCount: Long? = null,
     val startedAtEpochMs: Long,
     val durationMs: Long,
     val screenOrientation: String,

@@ -4,6 +4,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+/** What the live hand overlay cost while recording. Shown under technical details. */
+data class OverlayStats(val detections: Int, val meanDetectMs: Double, val errors: Int, val lastError: String?) {
+    fun toJson() = JSONObject().put("detections", detections).put("meanDetectMs", meanDetectMs).put("errors", errors).put("lastError", lastError ?: JSONObject.NULL)
+    companion object {
+        fun fromJson(o: JSONObject) = OverlayStats(o.getInt("detections"), o.getDouble("meanDetectMs"), o.getInt("errors"), if (o.isNull("lastError")) null else o.getString("lastError"))
+    }
+}
+
 enum class EpisodeStatus { NotSubmitted, Submitted, Validating, Accepted, Paid, Rejected }
 
 data class EpisodeState(
@@ -22,6 +30,19 @@ data class EpisodeState(
     val paidUsd: Double = 0.0,
     val paymentSignature: String? = null,
     val error: String? = null,
+    /** Everything below is what the validator measured, never what the phone claimed. */
+    val framing: Double? = null,
+    val plausibility: Double? = null,
+    val handsVisiblePercent: Double? = null,
+    val motionCorr: Double? = null,
+    val validatorScore: Double? = null,
+    val duplicateOf: String? = null,
+    val manifestIntact: Boolean? = null,
+    val streamsIntact: Boolean? = null,
+    /** Whether the live prediction strip has reached the server. */
+    val predictionsSent: Boolean = false,
+    /** Cost and health of the live hand overlay while recording. */
+    val overlay: OverlayStats? = null,
 ) {
     val needsPayoutApproval: Boolean get() = accountKind == "wallet" && status == EpisodeStatus.NotSubmitted && anchorSignature == null
 
@@ -31,6 +52,11 @@ data class EpisodeState(
         .put("anchorSignature", anchorSignature ?: JSONObject.NULL).put("waiting", waiting)
         .put("reasons", JSONArray(reasons)).put("paidUsd", paidUsd)
         .put("paymentSignature", paymentSignature ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL)
+        .put("framing", framing ?: JSONObject.NULL).put("plausibility", plausibility ?: JSONObject.NULL)
+        .put("handsVisiblePercent", handsVisiblePercent ?: JSONObject.NULL).put("motionCorr", motionCorr ?: JSONObject.NULL)
+        .put("validatorScore", validatorScore ?: JSONObject.NULL).put("duplicateOf", duplicateOf ?: JSONObject.NULL)
+        .put("manifestIntact", manifestIntact ?: JSONObject.NULL).put("streamsIntact", streamsIntact ?: JSONObject.NULL)
+        .put("predictionsSent", predictionsSent).put("overlay", overlay?.toJson() ?: JSONObject.NULL)
 
     companion object {
         fun fromJson(o: JSONObject) = EpisodeState(
@@ -41,8 +67,16 @@ data class EpisodeState(
             reasons = o.optJSONArray("reasons")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
             paidUsd = o.optDouble("paidUsd", 0.0), paymentSignature = o.optStringOrNull("paymentSignature"),
             error = o.optStringOrNull("error"),
+            framing = o.optDoubleOrNull("framing"), plausibility = o.optDoubleOrNull("plausibility"),
+            handsVisiblePercent = o.optDoubleOrNull("handsVisiblePercent"), motionCorr = o.optDoubleOrNull("motionCorr"),
+            validatorScore = o.optDoubleOrNull("validatorScore"), duplicateOf = o.optStringOrNull("duplicateOf"),
+            manifestIntact = o.optBooleanOrNull("manifestIntact"), streamsIntact = o.optBooleanOrNull("streamsIntact"),
+            predictionsSent = o.optBoolean("predictionsSent"),
+            overlay = if (o.isNull("overlay")) null else o.optJSONObject("overlay")?.let { OverlayStats.fromJson(it) },
         )
-        private fun JSONObject.optStringOrNull(k: String) = if (isNull(k)) null else getString(k)
+        private fun JSONObject.optStringOrNull(k: String) = if (!has(k) || isNull(k)) null else getString(k)
+        private fun JSONObject.optDoubleOrNull(k: String) = if (!has(k) || isNull(k)) null else getDouble(k)
+        private fun JSONObject.optBooleanOrNull(k: String) = if (!has(k) || isNull(k)) null else getBoolean(k)
     }
 }
 

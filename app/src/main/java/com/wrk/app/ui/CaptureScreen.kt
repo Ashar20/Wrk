@@ -41,10 +41,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.wrk.app.BuildConfig
 import com.wrk.app.PendingCapture
 import com.wrk.app.WrkContainer
 import com.wrk.app.capture.CaptureController
 import com.wrk.app.capture.CaptureException
+import com.wrk.app.capture.HandFrame
+import com.wrk.app.capture.HandTracker
+import com.wrk.app.capture.LivePredictor
+import com.wrk.app.capture.PredictClient
+import com.wrk.app.capture.Prediction
 import com.wrk.app.capture.ImuRecorder
 import com.wrk.app.capture.VideoRecorder
 import com.wrk.app.data.Bounty
@@ -56,7 +62,9 @@ import com.wrk.app.design.WrkColors
 import com.wrk.app.design.WrkShape
 import com.wrk.app.design.WrkType
 import com.wrk.app.episode.newEpisodeId
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -138,16 +146,30 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
     val view = remember { PreviewView(context).apply { implementationMode = PreviewView.ImplementationMode.COMPATIBLE; keepScreenOn = true; scaleType = PreviewView.ScaleType.FILL_CENTER } }
     val video = remember { VideoRecorder(context) }
     val controller = remember { CaptureController(context, video, ImuRecorder(context)) }
+    val tracker = remember { HandTracker(context) }
+    val predictClient = remember { PredictClient(BuildConfig.API_BASE) }
+    var handFrame by remember { mutableStateOf<HandFrame?>(null) }
+    var analysisOn by remember { mutableStateOf(false) }
+    var prediction by remember { mutableStateOf<Prediction?>(null) }
+    var predictSize by remember { mutableStateOf<Int?>(null) }
+    var lastHandsAtMs by remember { mutableLongStateOf(0L) }
     var phase by remember { mutableStateOf<Phase>(Phase.Ready) }
     var problem by remember { mutableStateOf<String?>(null) }
     var cameraReady by remember { mutableStateOf(false) }
     var coaching by remember { mutableStateOf<String?>(null) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
 
+    var elapsedForHands by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
-        try { video.bind(owner, view); cameraReady = true } catch (e: Exception) { problem = "The camera isn't available. Close other camera apps and try again." }
+        tracker.onHands = { f -> handFrame = f; if (f.hands.isNotEmpty()) lastHandsAtMs = elapsedForHands }
+        try {
+            analysisOn = video.bind(owner, view, if (tracker.available) tracker else null, tracker.executor)
+            cameraReady = true
+        } catch (e: Exception) { problem = "The camera isn't available. Close other camera apps and try again." }
     }
-    DisposableEffect(Unit) { onDispose { controller.cancel(); video.release() } }
+    // Optional extra: the live "model's guess". Absent model or server just means no bubble.
+    LaunchedEffect(Unit) { predictSize = predictClient.cropSize(); predictSize?.let { tracker.cropSize = it } }
+    DisposableEffect(Unit) { onDispose { controller.cancel(); video.release(); tracker.close() } }
 
     val minMs = bounty.minDurationS * 1000L
     val maxMs = bounty.maxDurationS * 1000L
@@ -156,6 +178,8 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
         Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(WrkShape.panel)).background(WrkColors.ink),
     ) {
         AndroidView({ view }, Modifier.fillMaxSize())
+        HandOverlay(handFrame, showGuide = analysisOn)
+        PredictionBubble(prediction, Modifier.align(Alignment.TopEnd).padding(top = 52.dp, end = 16.dp))
         val p = phase
         if (p is Phase.Recording || p is Phase.Saving) {
             val left = ((maxMs - elapsedMs).coerceAtLeast(0) / 1000.0)
@@ -198,17 +222,31 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
                     val id = newEpisodeId()
                     val file = File(container.episodes.begin(id), "rgb.mp4")
                     for (n in 3 downTo 1) { phase = Phase.Countdown(n); delay(1000) }
-                    elapsedMs = 0
+                    elapsedMs = 0; elapsedForHands = 0; lastHandsAtMs = 0; prediction = null
                     phase = Phase.Recording(0)
+                    val predictor = LivePredictor(predictClient, id).also { it.start() }
+                    if (predictSize != null && analysisOn) {
+                        tracker.onCrop = { rgb -> scope.launch(Dispatchers.IO) { predictor.submit(rgb, controller.latestMotion()) { prediction = it } } }
+                        tracker.cropEnabled = true
+                    }
                     try {
                         val raw = controller.record(file, maxMs) { ms ->
-                            elapsedMs = ms
+                            elapsedMs = ms; elapsedForHands = ms
                             phase = Phase.Recording(ms)
-                            coaching = if (ms in 2_000..(maxMs - 2_000) && controller.motionDps < 3f) "Turn your head a little as you work" else null
+                            val noHands = analysisOn && ms > 1_500 && ms - lastHandsAtMs > 1_500
+                            coaching = when {
+                                ms > maxMs - 2_000 -> null
+                                noHands -> "Tilt the phone down so your hands are in view"
+                                ms >= 2_000 && controller.motionDps < 3f -> "Turn your head a little as you work"
+                                else -> null
+                            }
                         }
+                        tracker.cropEnabled = false
                         phase = Phase.Saving
-                        onCaptured(PendingCapture(id, raw, bounty))
+                        withContext(Dispatchers.IO) { predictor.saveTo(File(container.episodes.dir(id), "predictions.json")) }
+                        onCaptured(PendingCapture(id, raw, bounty, overlay = if (analysisOn) tracker.stats() else null))
                     } catch (e: CaptureException) {
+                        tracker.cropEnabled = false
                         problem = e.message; phase = Phase.Ready; container.episodes.delete(id)
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         container.episodes.delete(id); throw e

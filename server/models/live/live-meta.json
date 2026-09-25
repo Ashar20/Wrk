@@ -1,0 +1,21 @@
+{
+  "size": 160,
+  "latentDim": 576,
+  "hiddenSize": 256,
+  "motionDim": 6,
+  "horizon": 2,
+  "trainEpisodes": 4,
+  "heldoutEpisodes": 1,
+  "heldoutError": 0.4365139305591583,
+  "baselineError": 0.2201710343360901,
+  "imagenetMean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "imagenetStd": [
+    0.229,
+    0.224,
+    0.225
+  ]
+}

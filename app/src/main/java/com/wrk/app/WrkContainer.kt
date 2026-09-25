@@ -15,7 +15,13 @@ import com.wrk.app.wallet.WalletManager
 import java.io.File
 
 /** A take that has been recorded but not yet reviewed or submitted. */
-class PendingCapture(val episodeId: String, val raw: RawCapture, val bounty: Bounty)
+class PendingCapture(
+    val episodeId: String,
+    val raw: RawCapture,
+    val bounty: Bounty,
+    /** How the live hand overlay behaved during this take, for the technical details. */
+    val overlay: com.wrk.app.episode.OverlayStats? = null,
+)
 
 /** Hand-wired dependencies, shared by the UI and the background upload worker. */
 class WrkContainer private constructor(private val app: Context) {

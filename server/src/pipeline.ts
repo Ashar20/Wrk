@@ -116,10 +116,14 @@ export async function runPipeline(
       accepted,
       reasons,
       plausibility,
+      framing: submission.framing,
+      hands_visible_percent: scores.framing.visibilityPercent,
       signature: scores.signature,
       validation,
       anchor,
     });
+    // The evidence behind the motion score, for the app to draw. Best effort: a missing chart never blocks payment.
+    try { store.saveBlob(episodeId, "traces.json", Buffer.from(JSON.stringify(scores.traces))); } catch { /* chart only */ }
 
     if (accepted && chain && rec.contributor) await payOnce(deps, episodeId, rec.contributor, decision.paid_usdc);
   } catch (err) {

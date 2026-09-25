@@ -80,6 +80,7 @@ dependencies {
     implementation("androidx.camera:camera-video:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("com.google.mediapipe:tasks-vision:0.10.33")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

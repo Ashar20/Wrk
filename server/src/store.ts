@@ -16,6 +16,9 @@ export interface EpisodeRecord {
   accepted: boolean;
   reasons: string[];
   plausibility: number | null;
+  /** Share of frames with hands where the task needs them, 0–1. Null when hands were never analysed. */
+  framing?: number | null;
+  hands_visible_percent?: number | null;
   signature: string[];
   validation?: ValidationResult;
   scoring_error?: string | null;
@@ -62,6 +65,11 @@ export class Store {
     const cur = this.episodes.get(id);
     if (!cur) throw new Error(`No such episode ${id}`);
     return this.put({ ...cur, ...patch });
+  }
+
+  readBlob(id: string, kind: string): Buffer | null {
+    const p = join(this.dir, "blobs", id, kind);
+    return existsSync(p) ? readFileSync(p) : null;
   }
 
   blobPath(id: string, kind: string) {

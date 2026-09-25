@@ -9,7 +9,7 @@ describe("flow-vs-gyro scoring on recorded episodes", () => {
   it("scores real captures well above a replay built from the same footage", async () => {
     const t0 = Date.now();
     const real = await scoreEpisode(fx("real", "rgb.webm"), fx("real", "imu.bin"));
-    console.log("SCORED real ms", Date.now() - t0, real.plausibility.percent, real.framesAnalyzed);
+    console.log("SCORED real ms", Date.now() - t0, "plaus", real.plausibility.percent, "frames", real.framesAnalyzed, "framing", JSON.stringify(real.framing));
     const real2 = await scoreEpisode(fx("real2", "rgb.webm"), fx("real2", "imu.bin"));
     // A replay: genuine video paired with motion from a different take.
     const replay = await scoreEpisode(fx("real", "rgb.webm"), fx("real2", "imu.bin"));

@@ -74,6 +74,7 @@ fun buildEpisode(
                 "height" to capture.height.json(),
                 "fps_nominal" to capture.fpsNominal.json(),
                 "fps_observed" to capture.fpsObserved?.let { round(it, 3) }.jsonOrNull(),
+                "frame_count" to (capture.frameCount?.toDouble()).jsonOrNull(),
                 "frame_timing" to "recorder_anchored".json(),
                 "device_label" to capture.deviceLabel.jsonOrNull(),
                 "fov_deg" to JsonNull,

@@ -27,6 +27,27 @@ class SubmissionProcessor(
     private val pollMs: Long = 3_000,
     private val maxPolls: Int = 60,
 ) {
+    /** What the validator measured, kept on the phone so the result screen works offline. */
+    private suspend fun recordMetrics(id: String, v: EpisodeView) {
+        store.update(id) {
+            it.copy(
+                framing = v.framing, plausibility = v.plausibility, handsVisiblePercent = v.handsVisiblePercent,
+                motionCorr = v.motionCorr, validatorScore = v.validatorScore, duplicateOf = v.duplicateOf,
+                manifestIntact = v.manifestIntact, streamsIntact = v.streamsIntact,
+            )
+        }
+        val f = File(store.dir(id), "traces.json")
+        if (!f.exists()) api.traces(id)?.let { runCatching { f.writeText(it) } }
+    }
+
+    /** The live "model's guess" strip is recorded on the phone; hand it over once, best effort. */
+    private suspend fun sendPredictionsOnce(id: String) {
+        val st = store.state(id) ?: return
+        val f = File(store.dir(id), "predictions.json")
+        if (st.predictionsSent || !f.exists()) return
+        if (api.uploadPredictions(id, f.readText())) store.update(id) { it.copy(predictionsSent = true) }
+    }
+
     suspend fun process(id: String): ProcessOutcome {
         var st = store.state(id) ?: return ProcessOutcome.Finished
         if (st.status == EpisodeStatus.Paid || st.status == EpisodeStatus.Rejected) return ProcessOutcome.Finished
@@ -49,10 +70,13 @@ class SubmissionProcessor(
             }
         }
 
+        sendPredictionsOnce(id)
+
         repeat(maxPolls) {
             val v = api.fetch(id)
             if (v == null) { store.update(id) { it.copy(waiting = true) }; return ProcessOutcome.TryAgain }
             store.update(id) { it.copy(waiting = false) }
+            if (v.status == "scored") recordMetrics(id, v)
             when {
                 v.status == "failed" -> {
                     store.update(id) { it.copy(status = EpisodeStatus.Rejected, reasons = listOf("We couldn't check this take. Please record it again.")) }

@@ -19,6 +19,7 @@ class CaptureController(private val context: Context, val video: VideoRecorder, 
     @Volatile private var cancelled = false
 
     val motionDps: Float get() = imu.motionDps
+    fun latestMotion(): FloatArray = imu.latestMotion()
 
     fun requestStop() { stopRequested = true }
     fun cancel() { cancelled = true; stopRequested = true }
@@ -71,7 +72,7 @@ class CaptureController(private val context: Context, val video: VideoRecorder, 
             return RawCapture(
                 videoFile = file,
                 imu = stream,
-                width = w, height = h, fpsNominal = 30, fpsObserved = fps,
+                width = w, height = h, fpsNominal = 30, fpsObserved = fps, frameCount = frames,
                 startedAtEpochMs = startedAtEpoch, durationMs = durMs.takeIf { it > 0 } ?: wallMs,
                 screenOrientation = "portrait", deviceLabel = "back",
             )

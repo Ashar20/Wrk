@@ -26,7 +26,7 @@ class SubmissionService(private val context: Context, private val c: WrkContaine
             built.episodeId,
             EpisodeState(
                 bountyId = p.bounty.id, bountyTitle = p.bounty.title, perEpisodeUsd = p.bounty.perEpisodeUsd,
-                createdAt = System.currentTimeMillis(), accountKind = if (account is Account.Wallet) "wallet" else "email",
+                overlay = p.overlay, createdAt = System.currentTimeMillis(), accountKind = if (account is Account.Wallet) "wallet" else "email",
             ),
         )
         c.pending = null

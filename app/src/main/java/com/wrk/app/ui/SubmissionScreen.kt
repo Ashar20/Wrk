@@ -96,6 +96,7 @@ fun SubmissionScreen(
                     PaperButton("View receipt", { uri.openUri(explorerUrl(sig)) }, Modifier.fillMaxWidth())
                     Text("Advanced: ${sig.take(10)}…${sig.takeLast(6)}", style = WrkType.data, color = WrkColors.subtle)
                 }
+                ResultPanels(id, s, store)
                 InkButton("Record another", onRecordAgain, Modifier.fillMaxWidth())
             }
             EpisodeStatus.Rejected -> {
@@ -107,6 +108,11 @@ fun SubmissionScreen(
                         }
                     }
                 }
+                Text(
+                    "Nothing was charged to you. Most rejections are a framing problem: watch the skeleton while you record and keep your hands inside the box.",
+                    style = WrkType.body, color = WrkColors.muted,
+                )
+                ResultPanels(id, s, store)
                 InkButton("Record again", onRecordAgain, Modifier.fillMaxWidth())
                 PaperButton("Delete this take", onDelete, Modifier.fillMaxWidth())
             }

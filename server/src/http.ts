@@ -7,6 +7,8 @@ import type { EpisodeRecord } from "./store";
 import { redactThresholds } from "@/lib/market/types";
 import type { Manifest } from "@/lib/manifest";
 import { validateEpisode, type StreamBytes } from "@/lib/validator/validate";
+import { liveMeta, liveModelAvailable } from "@/lib/worldmodel/live-model";
+import { predictNext, THUMBNAIL_SIZE } from "@/lib/worldmodel/predict";
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 
@@ -14,6 +16,20 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*" });
   res.end(JSON.stringify(body));
 }
+
+/** Raw request body, refusing anything larger than [limit] bytes. */
+async function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let n = 0;
+  for await (const c of req) {
+    n += (c as Buffer).length;
+    if (n > limit) throw Object.assign(new Error("Request too large."), { status: 413 });
+    chunks.push(c as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+const MAX_PREDICTIONS = 120;
 
 function parseMultipart(req: IncomingMessage) {
   return new Promise<{ fields: Record<string, string>; files: Record<string, Buffer> }>((resolve, reject) => {
@@ -35,6 +51,7 @@ function parseMultipart(req: IncomingMessage) {
 
 /** What the app is allowed to see. Never includes thresholds or internal fingerprints. */
 export function publicEpisode(e: EpisodeRecord) {
+  const checks = e.validation?.checks;
   return {
     episode_id: e.episode_id,
     bounty_id: e.bounty_id,
@@ -42,6 +59,11 @@ export function publicEpisode(e: EpisodeRecord) {
     accepted: e.status === "scored" ? e.accepted : null,
     reasons: e.reasons,
     plausibility: e.plausibility,
+    framing: e.framing ?? null,
+    hands_visible_percent: e.hands_visible_percent ?? null,
+    flow_gyro_corr: checks?.flow_gyro_corr ?? null,
+    validator_score: e.validation?.plausibility_score ?? null,
+    checks: checks ? { manifest_intact: checks.manifest_intact, streams_intact: checks.streams_intact, duplicate_of: checks.duplicate_of } : null,
     manifest_hash: e.manifest_hash,
     anchor: e.anchor ?? null,
     payment: e.payment && !e.payment.error ? e.payment : null,
@@ -92,6 +114,64 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (req.method === "GET" && url.pathname === "/me") {
         const me = accounts.session(bearer(req));
         return me ? send(res, 200, me) : send(res, 401, { error: "Not signed in." });
+      }
+
+      // --- live world-model guess: a small square crop in, the nearest earlier frame out -------------
+      if (req.method === "GET" && url.pathname === "/predict") {
+        if (!liveModelAvailable()) return send(res, 200, { available: false });
+        const meta = await liveMeta();
+        return send(res, 200, { available: true, size: meta.size, thumbnailSize: THUMBNAIL_SIZE });
+      }
+      if (req.method === "POST" && url.pathname === "/predict") {
+        if (!liveModelAvailable()) return send(res, 501, { error: "No live model is available." });
+        const session = url.searchParams.get("session") ?? "";
+        if (!/^[\w-]{8,64}$/.test(session)) return send(res, 400, { error: "A session id is required." });
+        const meta = await liveMeta();
+        const motion = ["ax", "ay", "az", "rx", "ry", "rz"].map((k) => {
+          const v = Number(url.searchParams.get(k));
+          return Number.isFinite(v) ? v : 0;
+        });
+        const rgb = new Uint8Array(await readBody(req, meta.size * meta.size * 3 + 1));
+        if (rgb.length !== meta.size * meta.size * 3) {
+          return send(res, 400, { error: `Expected ${meta.size * meta.size * 3} bytes of ${meta.size}x${meta.size} RGB.` });
+        }
+        const out = await predictNext({ sessionId: session, rgb, motion });
+        if (!out) return send(res, 501, { error: "No live model is available." });
+        res.writeHead(200, {
+          "content-type": "application/octet-stream",
+          "x-thumbnail-size": String(out.thumbnailSize),
+          "x-distance": String(out.distance),
+          "x-bank-size": String(out.bankSize),
+          "x-warming": String(out.warming),
+          "cache-control": "no-store",
+          "access-control-expose-headers": "x-thumbnail-size,x-distance,x-bank-size,x-warming",
+        });
+        return void res.end(Buffer.from(out.thumbnail));
+      }
+
+      const sub = /^\/episodes\/([\w-]+)\/(traces|predictions)$/.exec(url.pathname);
+      if (sub) {
+        const [, id, kind] = sub;
+        if (!/^ep_[0-9a-f]{8,64}$/.test(id) || !store.get(id)) return send(res, 404, { error: "No such episode." });
+        const file = `${kind}.json`;
+        if (req.method === "GET") {
+          const raw = store.readBlob(id, file);
+          return raw ? send(res, 200, { [kind]: JSON.parse(raw.toString("utf8")) }) : send(res, 404, { error: `No ${kind} for that episode.` });
+        }
+        if (req.method === "POST" && kind === "predictions") {
+          let body: { predictions?: unknown };
+          try { body = JSON.parse((await readBody(req, 6_000_000)).toString("utf8")); } catch { return send(res, 400, { error: "Body must be JSON." }); }
+          if (!Array.isArray(body.predictions)) return send(res, 400, { error: "predictions must be an array." });
+          const clean = body.predictions.filter(
+            (p): p is { t: number; distance: number; warming: boolean; thumbnail: string } =>
+              typeof p === "object" && p !== null &&
+              typeof (p as { t?: unknown }).t === "number" && typeof (p as { distance?: unknown }).distance === "number" &&
+              typeof (p as { warming?: unknown }).warming === "boolean" &&
+              typeof (p as { thumbnail?: unknown }).thumbnail === "string" && (p as { thumbnail: string }).thumbnail.startsWith("data:image/"),
+          ).slice(0, MAX_PREDICTIONS);
+          store.saveBlob(id, file, Buffer.from(JSON.stringify(clean)));
+          return send(res, 200, { ok: true, count: clean.length });
+        }
       }
 
       const m = /^\/episodes\/([\w-]+)$/.exec(url.pathname);

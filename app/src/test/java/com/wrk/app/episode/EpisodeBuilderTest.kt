@@ -15,7 +15,10 @@ class EpisodeBuilderTest {
     private fun capture(seconds: Double = 15.0, samples: Int = 1500, video: ByteArray = ByteArray(2048) { it.toByte() }): RawCapture {
         val f = tmp.newFile().also { it.writeBytes(video) }
         val imu = ImuStream(1.757e12, List(samples) { i -> ImuSample(i * 10f, 0f, 9.8f, 0f, 1f, 2f, 3f) })
-        return RawCapture(f, imu, 720, 1280, 30, 29.7, 1_757_030_400_000, (seconds * 1000).toLong(), "portrait", "back")
+        return RawCapture(
+            videoFile = f, imu = imu, width = 720, height = 1280, fpsNominal = 30, fpsObserved = 29.7, frameCount = 445,
+            startedAtEpochMs = 1_757_030_400_000, durationMs = (seconds * 1000).toLong(), screenOrientation = "portrait", deviceLabel = "back",
+        )
     }
     private fun build(c: RawCapture, report: SelfReport? = null) =
         buildEpisode(c, tmp.newFolder(), bounty, "9xQeWvG816bUx9EPfEZEoPqdNaE4gqCNTNqmbFnfZoxM", "asset_1", report, "0.1.0")

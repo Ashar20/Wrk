@@ -1,0 +1,8 @@
+{
+  "name": "@mediapipe/hands",
+  "version": "0.0.0-stub",
+  "private": true,
+  "description": "Local stub. hand-pose-detection requires this eagerly; we use its tfjs runtime and never the mediapipe one.",
+  "main": "index.js",
+  "types": "index.d.ts"
+}

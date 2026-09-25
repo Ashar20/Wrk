@@ -4,7 +4,12 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.view.Surface
+import android.util.Size
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FileOutputOptions
@@ -27,19 +32,45 @@ class VideoRecorder(private val context: Context) {
     private var recording: Recording? = null
     private val executor = ContextCompat.getMainExecutor(context)
 
-    suspend fun bind(owner: LifecycleOwner, view: PreviewView) {
+    /**
+     * Preview, recording and (optionally) a small analysis stream, all in 16:9 so the viewfinder, the saved video and
+     * the hand overlay share one field of view. Phones that can't run all three get preview + recording only; the
+     * result says whether analysis is on.
+     */
+    suspend fun bind(owner: LifecycleOwner, view: PreviewView, analyzer: ImageAnalysis.Analyzer? = null, analysisExecutor: java.util.concurrent.Executor? = null): Boolean {
         val provider = suspendCoroutine<ProcessCameraProvider> { c ->
             val f = ProcessCameraProvider.getInstance(context)
             f.addListener({ c.resume(f.get()) }, executor)
         }
-        val preview = Preview.Builder().setTargetRotation(Surface.ROTATION_0).build().also { it.surfaceProvider = view.surfaceProvider }
+        val wide = ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build()
+        val preview = Preview.Builder().setResolutionSelector(wide).setTargetRotation(Surface.ROTATION_0).build().also { it.surfaceProvider = view.surfaceProvider }
         val recorder = Recorder.Builder()
             .setQualitySelector(QualitySelector.fromOrderedList(listOf(Quality.HD, Quality.SD, Quality.LOWEST)))
             .build()
         val capture = VideoCapture.Builder(recorder).setTargetRotation(Surface.ROTATION_0).build()
         provider.unbindAll()
-        provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
         videoCapture = capture
+        if (analyzer != null && analysisExecutor != null) {
+            val analysis = ImageAnalysis.Builder()
+                .setResolutionSelector(
+                    ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                        .setResolutionStrategy(ResolutionStrategy(Size(640, 360), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                        .build(),
+                )
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                .setTargetRotation(Surface.ROTATION_0)
+                .build().also { it.setAnalyzer(analysisExecutor, analyzer) }
+            try {
+                provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture, analysis)
+                return true
+            } catch (e: IllegalArgumentException) {
+                provider.unbindAll() // this phone can't run all three streams at once
+            }
+        }
+        provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+        return false
     }
 
     /** [onStarted] fires when frames start flowing; [onFinished] when the file is complete or failed. */

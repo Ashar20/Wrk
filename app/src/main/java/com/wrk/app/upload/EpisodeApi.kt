@@ -7,6 +7,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -21,6 +22,14 @@ data class EpisodeView(
     val paidUsd: Double?,
     val paymentError: String?,
     val scoringError: String?,
+    val framing: Double? = null,
+    val plausibility: Double? = null,
+    val handsVisiblePercent: Double? = null,
+    val motionCorr: Double? = null,
+    val validatorScore: Double? = null,
+    val duplicateOf: String? = null,
+    val manifestIntact: Boolean? = null,
+    val streamsIntact: Boolean? = null,
 )
 
 sealed interface UploadResult {
@@ -36,6 +45,10 @@ interface EpisodeApi {
     suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?): UploadResult
     /** Null when the validator can't be reached right now. */
     suspend fun fetch(episodeId: String): EpisodeView?
+    /** The aligned flow/gyro traces as JSON text, or null when unavailable. */
+    suspend fun traces(episodeId: String): String? = null
+    /** Sends the saved live-prediction strip. Returns true once the server has it. */
+    suspend fun uploadPredictions(episodeId: String, json: String): Boolean = true
 }
 
 class HttpEpisodeApi(
@@ -80,7 +93,25 @@ class HttpEpisodeApi(
         } catch (e: Exception) { null }
     }
 
+    override suspend fun traces(episodeId: String): String? = withContext(Dispatchers.IO) {
+        try {
+            client.newCall(Request.Builder().url("$baseUrl/episodes/$episodeId/traces").build()).execute().use { r ->
+                if (!r.isSuccessful) null else JSONObject(r.body!!.string()).getJSONArray("traces").toString()
+            }
+        } catch (e: Exception) { null }
+    }
+
+    override suspend fun uploadPredictions(episodeId: String, json: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder().url("$baseUrl/episodes/$episodeId/predictions")
+                .post(json.toRequestBody("application/json".toMediaType())).build()
+            client.newCall(req).execute().use { it.isSuccessful }
+        } catch (e: Exception) { false }
+    }
+
     private fun strings(a: org.json.JSONArray?) = a?.let { List(it.length()) { i -> it.getString(i) } } ?: emptyList()
+
+    private fun dbl(o: JSONObject, k: String): Double? = if (!o.has(k) || o.isNull(k)) null else o.getDouble(k)
 
     private fun parse(o: JSONObject): EpisodeView {
         val pay = o.optJSONObject("payment")
@@ -92,6 +123,12 @@ class HttpEpisodeApi(
             paidUsd = pay?.optDouble("amount_usdc"),
             paymentError = o.optString("payment_error").takeIf { it.isNotBlank() && it != "null" },
             scoringError = o.optString("scoring_error").takeIf { it.isNotBlank() && it != "null" },
+            framing = dbl(o, "framing"), plausibility = dbl(o, "plausibility"),
+            handsVisiblePercent = dbl(o, "hands_visible_percent"), motionCorr = dbl(o, "flow_gyro_corr"),
+            validatorScore = dbl(o, "validator_score"),
+            duplicateOf = o.optJSONObject("checks")?.let { c -> if (c.isNull("duplicate_of")) null else c.optString("duplicate_of") },
+            manifestIntact = o.optJSONObject("checks")?.optBoolean("manifest_intact"),
+            streamsIntact = o.optJSONObject("checks")?.optBoolean("streams_intact"),
         )
     }
 }

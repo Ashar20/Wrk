@@ -19,6 +19,8 @@ class ImuRecorder(context: Context) : SensorEventListener {
 
     val motionDps: Float get() = acc.motionDps
 
+    fun latestMotion(): FloatArray = acc.latest()
+
     fun start() {
         val t = HandlerThread("wrk-imu").also { it.start() }
         thread = t

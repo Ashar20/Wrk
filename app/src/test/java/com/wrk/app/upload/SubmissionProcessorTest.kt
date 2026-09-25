@@ -19,6 +19,12 @@ private class FakeApi : EpisodeApi {
     var lastAnchor: String? = "unset"
     var uploadResult: UploadResult = UploadResult.Ok(view("scoring"))
     val fetches = ArrayDeque<EpisodeView?>()
+    var tracesJson: String? = """[{"t":0,"flowYaw":0.5,"gyroYaw":0.4,"flowPitch":0.1,"gyroPitch":0.2}]"""
+    var traceFetches = 0
+    var predictionUploads = 0
+    var predictionsOk = true
+    override suspend fun traces(episodeId: String): String? { traceFetches++; return tracesJson }
+    override suspend fun uploadPredictions(episodeId: String, json: String): Boolean { predictionUploads++; return predictionsOk }
     override suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?): UploadResult {
         uploads++; lastBearer = bearer; lastAnchor = anchorSignature; return uploadResult
     }
@@ -124,5 +130,53 @@ class SubmissionProcessorTest {
         api.fetches += view("scored", false, listOf("x"))
         processor(token = null).process("ep1")
         assertNull(api.lastBearer)
+    }
+
+    @Test fun measuredMetricsAreKeptForTheResultScreen() = runTest {
+        api.fetches += EpisodeView("scored", true, emptyList(), "p", 0.6, null, null,
+            framing = 0.8, plausibility = 0.71, handsVisiblePercent = 90.0, motionCorr = 0.71, validatorScore = 0.93,
+            duplicateOf = null, manifestIntact = true, streamsIntact = true)
+        processor().process("ep1")
+        val s = store.state("ep1")!!
+        assertEquals(0.8, s.framing!!, 0.0); assertEquals(0.71, s.plausibility!!, 0.0); assertEquals(90.0, s.handsVisiblePercent!!, 0.0)
+        assertEquals(0.93, s.validatorScore!!, 0.0); assertEquals(true, s.manifestIntact); assertNull(s.duplicateOf)
+    }
+
+    @Test fun tracesAreFetchedOnceAndSavedBesideTheTake() = runTest {
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += view("scored", false, listOf("x"))
+        processor().process("ep1")
+        assertTrue(File(store.dir("ep1"), "traces.json").readText().contains("flowYaw"))
+        assertEquals(1, api.traceFetches)
+    }
+
+    @Test fun missingTracesNeverBlockTheVerdict() = runTest {
+        api.tracesJson = null
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += view("scored", true, pay = "p")
+        assertEquals(ProcessOutcome.Finished, processor().process("ep1"))
+        assertEquals(EpisodeStatus.Paid, store.state("ep1")!!.status)
+        assertTrue(!File(store.dir("ep1"), "traces.json").exists())
+    }
+
+    @Test fun savedPredictionStripIsSentOnceAndRememberedWhenItLands() = runTest {
+        File(store.dir("ep1"), "predictions.json").writeText("""{"predictions":[]}""")
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += listOf(null)
+        processor().process("ep1")
+        assertEquals(1, api.predictionUploads); assertTrue(store.state("ep1")!!.predictionsSent)
+        api.fetches += view("scored", false, listOf("x"))
+        processor().process("ep1")
+        assertEquals(1, api.predictionUploads)
+    }
+
+    @Test fun aFailedPredictionUploadIsRetriedNextTimeAndNeverBlocksPayment() = runTest {
+        File(store.dir("ep1"), "predictions.json").writeText("{}")
+        api.predictionsOk = false
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += view("scored", true, pay = "p")
+        processor().process("ep1")
+        assertEquals(EpisodeStatus.Paid, store.state("ep1")!!.status)
+        assertTrue(!store.state("ep1")!!.predictionsSent)
     }
 }

@@ -1,7 +1,7 @@
 /**
- * Server-side scoring: every number that decides acceptance or payment is
- * computed here from the bytes that arrived, never taken from the client.
- * Plausibility is optical flow versus gyroscope correlation.
+ * Server-side scoring: every number that decides acceptance or payment is computed here from the
+ * bytes that arrived, never taken from the client. Plausibility is optical flow versus gyroscope
+ * correlation; framing is how much of the take had hands where the task needs them.
  */
 
 import { execFile } from "node:child_process";
@@ -18,7 +18,13 @@ import {
   type PlausibilityReport,
 } from "@/lib/analysis/correlate";
 import { estimateFlow, toGrayscale } from "@/lib/analysis/flow";
+import {
+  framingScore,
+  type FrameHands,
+  type FramingReport,
+} from "@/lib/analysis/framing";
 import { decodeImuStream, type ImuSample } from "@/lib/capture/imu-codec";
+import { detectHandsServerSide } from "./detector";
 import { dHash, episodeSignature } from "./phash";
 
 const run = promisify(execFile);
@@ -34,9 +40,18 @@ const SAMPLE_FPS = 8;
 const MAX_FRAMES = 160;
 const EDGE = 192;
 
+/**
+ * Hand detection runs on one sampled frame in this many.
+ *
+ * Detection dominates the cost — 121 frames took 164 seconds — while flow
+ * needs consecutive pairs and framing does not need every frame. Scoring
+ * every third frame still gives ~40 measurements across a 15s take, which
+ * is more than the phone managed, at a third of the time.
+ */
+const DETECT_EVERY = 3;
+
 export interface Scores {
-  /** Hand framing is not measured for Wrk bounties; kept null so acceptance can skip it. */
-  framing: { percent: number | null; visibilityPercent: number | null };
+  framing: FramingReport;
   plausibility: PlausibilityReport;
   /** The two traces at the best lag, for §6.3's overlay. Empty when unpaired. */
   traces: AlignedTrace[];
@@ -194,6 +209,9 @@ export async function scoreEpisode(
       // plausibility will report insufficient_frames and say so.
     }
 
+    const hands: FrameHands[] = await detectHandsServerSide(
+      frames.filter((_, index) => index % DETECT_EVERY === 0),
+    );
     const flow = await flowSeries(frames);
 
     const signature = episodeSignature(
@@ -211,7 +229,7 @@ export async function scoreEpisode(
     const report = plausibility(flow, imu);
 
     return {
-      framing: { percent: null, visibilityPercent: null },
+      framing: framingScore(hands),
       plausibility: report,
       // At the lag the correlator actually chose, so the picture matches the
       // number rather than showing an unaligned pair beside a good score.

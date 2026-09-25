@@ -16,7 +16,7 @@ const CONTRIBUTOR = "9xQeWvG816bUx9EPfEZEoPqdNaE4gqCNTNqmbFnfZoxM";
 
 function scores(percent: number | null, signature: string[] = ["a"]): Scores {
   return {
-    framing: { percent: null, visibilityPercent: null },
+    framing: { verdict: "ok", percent: 80, framesAnalyzed: 10, framesWithHands: 9, framesInGuide: 8, visibilityPercent: 90 },
     plausibility: { percent } as Scores["plausibility"],
     traces: [],
     signature,
@@ -239,5 +239,52 @@ describe("validator HTTP", () => {
   it("rejects an expired session instead of treating the upload as anonymous", async () => {
     const ep = await makeEpisode({ id: "ep_" + "99cc".repeat(6) });
     expect((await upload(base, ep, "s", "bogus-token")).status).toBe(401);
+  });
+
+  it("exposes the measured metrics the result screen shows, and nothing secret", async () => {
+    const ep = await makeEpisode({ id: "ep_" + "1a2b".repeat(6) });
+    chain.memos.add(`s|${CONTRIBUTOR}|${memoText("bounty_004", ep.id, ep.manifest.manifest_hash)}`);
+    await upload(base, ep, "s");
+    const done = await settled(base, ep.id);
+    expect(done.framing).toBeCloseTo(0.8);
+    expect(done.hands_visible_percent).toBe(90);
+    expect(done.validator_score).toBeGreaterThan(0);
+    expect(done.checks).toMatchObject({ manifest_intact: true, streams_intact: true, duplicate_of: null });
+    expect(JSON.stringify(done)).not.toMatch(/min_plausibility|signature":\[/);
+  });
+
+  it("serves the aligned traces and the saved prediction strip", async () => {
+    const ep = await makeEpisode({ id: "ep_" + "3c4d".repeat(6) });
+    chain.memos.add(`s|${CONTRIBUTOR}|${memoText("bounty_004", ep.id, ep.manifest.manifest_hash)}`);
+    await upload(base, ep, "s");
+    await settled(base, ep.id);
+    expect((await (await fetch(`${base}/episodes/${ep.id}/traces`)).json()).traces).toEqual([]);
+
+    expect((await fetch(`${base}/episodes/${ep.id}/predictions`)).status).toBe(404);
+    const post = (predictions: unknown[]) =>
+      fetch(`${base}/episodes/${ep.id}/predictions`, { method: "POST", body: JSON.stringify({ predictions }) });
+    const good = { t: 500, distance: 1.5, warming: false, thumbnail: "data:image/png;base64,AAAA" };
+    const r = await (await post([good, { ...good, thumbnail: "javascript:alert(1)" }, { nope: true }])).json();
+    expect(r.count).toBe(1);
+    expect((await (await fetch(`${base}/episodes/${ep.id}/predictions`)).json()).predictions).toEqual([good]);
+    expect((await fetch(`${base}/episodes/ep_ffffffffffffffff/predictions`)).status).toBe(404);
+  });
+
+  it("runs the live world model: a crop in, an earlier frame out, with a warm-up", async () => {
+    const meta = await (await fetch(`${base}/predict`)).json();
+    expect(meta).toMatchObject({ available: true, size: 160 });
+    const frame = (seed: number) => Uint8Array.from({ length: 160 * 160 * 3 }, (_, i) => (i * 7 + seed) % 256);
+    const post = (body: BlobPart) => fetch(`${base}/predict?session=sess-abcdef12&ax=0&ay=9.8&az=0&rx=1&ry=2&rz=3`, { method: "POST", body: new Blob([body]) });
+
+    expect((await post(new Uint8Array(10))).status).toBe(400);
+    const first = await post(frame(1));
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-warming")).toBe("true");
+    expect((await first.arrayBuffer()).byteLength).toBe(64 * 64 * 3);
+    await post(frame(2));
+    const third = await post(frame(3));
+    expect(third.headers.get("x-warming")).toBe("false");
+    expect(Number(third.headers.get("x-bank-size"))).toBe(3);
+    expect((await fetch(`${base}/predict?session=x`, { method: "POST", body: new Blob([frame(1)]) })).status).toBe(400);
   });
 });
