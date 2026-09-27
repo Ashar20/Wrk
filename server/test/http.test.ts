@@ -7,6 +7,7 @@ import { createHttpServer } from "../src/http";
 import { Store } from "../src/store";
 import { memoText, type ChainPort } from "../src/solana/chain";
 import { Accounts } from "../src/accounts";
+import { BountyStore } from "../src/bountyStore";
 import type { Mailer } from "../src/mailer";
 import { Keypair } from "@solana/web3.js";
 import { sealManifest, sha256Hex } from "@/lib/manifest";
@@ -112,6 +113,7 @@ describe("validator HTTP", () => {
     server = createHttpServer({
       store: new Store(mkdtempSync(join(tmpdir(), "wrk-test-"))),
       accounts,
+      bounties: new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-"))),
       chain,
       score: async () => scores(plausibility),
       requireAnchor: true,
@@ -174,7 +176,7 @@ describe("validator HTTP", () => {
   it("marks an episode failed, not stuck, when scoring throws", async () => {
     server.close();
     const store = new Store(mkdtempSync(join(tmpdir(), "wrk-test-")));
-    server = createHttpServer({ store, accounts, chain, score: async () => { throw new Error("no frames"); }, requireAnchor: true });
+    server = createHttpServer({ store, accounts, bounties: new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-"))), chain, score: async () => { throw new Error("no frames"); }, requireAnchor: true });
     await new Promise<void>((r) => server.listen(0, r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const ep = await makeEpisode({ id: "ep_" + "9f8e".repeat(6) });

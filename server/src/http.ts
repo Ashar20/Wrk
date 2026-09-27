@@ -1,8 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import Busboy from "busboy";
-import { BOUNTIES } from "./bounties";
 import { runPipeline, type PipelineDeps } from "./pipeline";
 import { AuthError, type Accounts } from "./accounts";
+import { BountyInputError, type BountyStore } from "./bountyStore";
+import { dataset, summary, visibleToBuyer } from "./buyer";
+import { decide, historyFor, pendingFor, queueItem, ReviewError } from "./review";
 import type { EpisodeRecord } from "./store";
 import { redactThresholds } from "@/lib/market/types";
 import type { Manifest } from "@/lib/manifest";
@@ -72,7 +74,7 @@ export function publicEpisode(e: EpisodeRecord) {
   };
 }
 
-export type HttpDeps = PipelineDeps & { accounts: Accounts };
+export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore };
 
 const bearer = (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
 
@@ -92,14 +94,28 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 export function createHttpServer(deps: HttpDeps): Server {
-  const { store, accounts } = deps;
+  const { store, accounts, bounties } = deps;
+  // A bounty closes itself once it has paid for as many takes as it asked for.
+  const pdeps: PipelineDeps = {
+    ...deps,
+    onPaid: (bid) => {
+      const b = bounties.get(bid);
+      if (b && store.list().filter((e) => e.bounty_id === bid && e.payment && !e.payment.error).length >= b.min_episodes) bounties.close(bid);
+    },
+  };
+  const requireSession = (req: IncomingMessage) => {
+    const me = accounts.session(bearer(req));
+    if (!me) throw new AuthError("Sign in first.", 401);
+    return me;
+  };
+
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://x");
       if (req.method === "OPTIONS") return send(res, 204, {});
 
       if (req.method === "GET" && url.pathname === "/bounties") {
-        return send(res, 200, { bounties: BOUNTIES.map(redactThresholds) });
+        return send(res, 200, { bounties: bounties.list().filter((b) => b.status === "open").map(redactThresholds) });
       }
 
       if (req.method === "POST" && url.pathname === "/auth/email/start") {
@@ -114,6 +130,91 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (req.method === "GET" && url.pathname === "/me") {
         const me = accounts.session(bearer(req));
         return me ? send(res, 200, me) : send(res, 401, { error: "Not signed in." });
+      }
+
+      // --- wallet sign-in: sign a one-time challenge to prove you hold the address ---------------------------------------------
+      if (req.method === "POST" && url.pathname === "/auth/wallet/challenge") {
+        return send(res, 200, accounts.challenge(String((await readJson(req)).address ?? "")));
+      }
+      if (req.method === "POST" && url.pathname === "/auth/wallet/verify") {
+        const b = await readJson(req);
+        const sig = Buffer.from(String(b.signature ?? ""), "base64");
+        const r = accounts.verifyWallet(String(b.address ?? ""), new Uint8Array(sig));
+        return send(res, 200, { token: r.token, address: r.address });
+      }
+
+      // --- verifier: a queue of close calls, a player, and a decision --------------------------------------------------------
+      if (req.method === "GET" && url.pathname === "/review/queue") {
+        const me = requireSession(req);
+        return send(res, 200, { items: pendingFor(store.list(), (id) => bounties.get(id), me) });
+      }
+      if (req.method === "GET" && url.pathname === "/review/mine") {
+        const me = requireSession(req);
+        return send(res, 200, historyFor(store.list(), (id) => bounties.get(id), me));
+      }
+      const rv = /^\/review\/(ep_[0-9a-f]{8,64})(?:\/(video|traces|decision))?$/.exec(url.pathname);
+      if (rv) {
+        const me = requireSession(req);
+        const e = store.get(rv[1]);
+        const b = e ? bounties.get(e.bounty_id) : undefined;
+        const canSee = e && b && e.contributor !== me.address &&
+          ((e.status === "in_review" && e.review?.status === "pending") || e.review?.reviewer === me.address);
+        if (!e || !b || !canSee) return send(res, 404, { error: "That take isn't available to review." });
+        const kind = rv[2];
+        if (req.method === "GET" && !kind) return send(res, 200, queueItem(e, b));
+        if (req.method === "GET" && kind === "traces") {
+          const raw = store.readBlob(e.episode_id, "traces.json");
+          return raw ? send(res, 200, { traces: JSON.parse(raw.toString("utf8")) }) : send(res, 404, { error: "No traces for that take." });
+        }
+        if (req.method === "GET" && kind === "video") {
+          const video = store.readBlob(e.episode_id, "rgb");
+          if (!video) return send(res, 404, { error: "No video for that take." });
+          const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+          if (!range) {
+            res.writeHead(200, { "content-type": "video/mp4", "content-length": video.length, "accept-ranges": "bytes" });
+            return void res.end(video);
+          }
+          const start = range[1] === "" ? Math.max(0, video.length - Number(range[2])) : Number(range[1]);
+          const end = range[1] === "" || range[2] === "" ? video.length - 1 : Math.min(Number(range[2]), video.length - 1);
+          if (!(start <= end) || start >= video.length) {
+            res.writeHead(416, { "content-range": `bytes */${video.length}` });
+            return void res.end();
+          }
+          res.writeHead(206, { "content-type": "video/mp4", "content-length": end - start + 1, "content-range": `bytes ${start}-${end}/${video.length}`, "accept-ranges": "bytes" });
+          return void res.end(video.subarray(start, end + 1));
+        }
+        if (req.method === "POST" && kind === "decision") {
+          const body = await readJson(req);
+          if (body.decision !== "approve" && body.decision !== "reject") return send(res, 400, { error: "Decide approve or reject." });
+          const done = await decide(pdeps, e.episode_id, me, body.decision, String(body.note ?? ""), b);
+          return send(res, 200, { decision: done.review?.status, fee: done.review?.fee ?? null });
+        }
+      }
+
+      // --- buyer: post tasks, watch results, take the dataset manifest -----------------------------------------------------
+      if (req.method === "POST" && url.pathname === "/buyer/bounties") {
+        const me = requireSession(req);
+        const b = await readJson(req);
+        const made = bounties.create(
+          {
+            title: String(b.title ?? ""), task_spec: String(b.task_spec ?? ""),
+            per_episode_usdc: Number(b.per_episode_usdc), min_episodes: Number(b.min_episodes),
+            review_policy: b.review_policy === "borderline" ? "borderline" : "none",
+          },
+          me.address,
+        );
+        return send(res, 201, { bounty: redactThresholds(made) });
+      }
+      if (req.method === "GET" && url.pathname === "/buyer/summary") {
+        const me = requireSession(req);
+        return send(res, 200, summary(store.list(), bounties.list(), me.address));
+      }
+      const bd = /^\/buyer\/bounties\/([\w-]+)\/dataset$/.exec(url.pathname);
+      if (req.method === "GET" && bd) {
+        const me = requireSession(req);
+        const b = bounties.get(bd[1]);
+        if (!b || !visibleToBuyer(b, me.address)) return send(res, 404, { error: "No such task." });
+        return send(res, 200, dataset(store.list(), b));
       }
 
       // --- live world-model guess: a small square crop in, the nearest earlier frame out -------------
@@ -206,8 +307,9 @@ export function createHttpServer(deps: HttpDeps): Server {
         if (token && !me) return send(res, 401, { error: "Your sign-in expired. Sign in again." });
         if (me && manifest.contributor !== me.address) return send(res, 403, { error: "This episode belongs to a different payment account." });
 
-        const bounty = BOUNTIES.find((b) => b.bounty_id === manifest.bounty_id);
+        const bounty = bounties.get(String(manifest.bounty_id));
         if (!bounty) return send(res, 404, { error: "No such bounty." });
+        if (bounty.status !== "open") return send(res, 409, { error: "This task has all the takes it needs." });
 
         const declared = (manifest.streams ?? {}) as Record<string, { sha256: string }>;
         const streams: StreamBytes[] = [];
@@ -243,7 +345,7 @@ export function createHttpServer(deps: HttpDeps): Server {
           received_at: Math.floor(Date.now() / 1000),
         });
 
-        void runPipeline(deps, {
+        void runPipeline(pdeps, {
           episodeId,
           bounty,
           manifest,
@@ -256,7 +358,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 
       send(res, 404, { error: "Not found." });
     } catch (err) {
-      const status = err instanceof AuthError ? err.status : ((err as { status?: number }).status ?? 500);
+      const status = err instanceof AuthError || err instanceof ReviewError ? err.status : err instanceof BountyInputError ? 400 : ((err as { status?: number }).status ?? 500);
       send(res, status, { error: err instanceof Error ? err.message : String(err) });
     }
   });

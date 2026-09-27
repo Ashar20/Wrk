@@ -3,6 +3,7 @@ import { Keypair } from "@solana/web3.js";
 import { createHttpServer } from "./http";
 import { Store } from "./store";
 import { Accounts } from "./accounts";
+import { BountyStore } from "./bountyStore";
 import { ConsoleMailer, ResendMailer } from "./mailer";
 import { SolanaChain } from "./solana/solana-chain";
 import { createWorkerScorer } from "./scorer";
@@ -31,6 +32,7 @@ if (mailer instanceof ConsoleMailer) console.warn("RESEND_API_KEY not set: sign-
 
 createHttpServer({
   accounts: new Accounts(dataDir, mailer),
+  bounties: new BountyStore(dataDir),
   store,
   chain,
   score: createWorkerScorer(),

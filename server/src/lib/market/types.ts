@@ -60,6 +60,10 @@ export interface Bounty {
   deadline: number;
   created_at: number;
   status: "open" | "closed";
+  /** Who posted it: a payment-account address, or "wrk" for the demo bounties. */
+  owner?: string;
+  /** "borderline": takes near the bar wait for a human reviewer before they are paid or refused. */
+  review_policy?: "none" | "borderline";
 }
 
 /** What a contributor submits after their episode is scored on-device. */

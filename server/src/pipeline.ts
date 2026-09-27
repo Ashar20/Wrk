@@ -16,7 +16,12 @@ export interface PipelineDeps {
   /** When true an episode is only accepted once its memo is found on chain. */
   requireAnchor: boolean;
   validatorId?: string | null;
+  /** Called after a payout lands, so a bounty that has met its quota can close. */
+  onPaid?: (bountyId: string) => void;
 }
+
+/** Takes this close to a bounty's bar are worth a human look when the bounty asks for one. */
+export const REVIEW_BAND = 0.15;
 
 const paying = new Set<string>();
 
@@ -111,6 +116,23 @@ export async function runPipeline(
 
     const accepted = decision.accepted && validation.failures.length === 0 && reasons.length === 0;
 
+    // Close calls go to a person before anyone is paid or refused. Integrity and anchoring problems never do:
+    // those are not judgement calls.
+    const hardProblem = validation.failures.length > 0 || reasons.some((r) => /not found on Solana/.test(r));
+    const onlyMotionMiss = !decision.accepted && decision.reasons.length === 1 && /Motion match/.test(decision.reasons[0]);
+    const needsReview =
+      bounty.review_policy === "borderline" && !hardProblem && plausibility !== null &&
+      Math.abs(plausibility - bounty.min_plausibility) <= REVIEW_BAND && (decision.accepted || onlyMotionMiss);
+    if (needsReview) {
+      store.update(episodeId, {
+        status: "in_review", accepted: false, reasons: [], plausibility, framing: submission.framing,
+        hands_visible_percent: scores.framing.visibilityPercent, signature: scores.signature, validation, anchor,
+        review: { status: "pending", auto_accepted: decision.accepted },
+      });
+      try { store.saveBlob(episodeId, "traces.json", Buffer.from(JSON.stringify(scores.traces))); } catch { /* chart only */ }
+      return;
+    }
+
     store.update(episodeId, {
       status: "scored",
       accepted,
@@ -135,7 +157,7 @@ export async function runPipeline(
   }
 }
 
-async function payOnce(deps: PipelineDeps, episodeId: string, contributor: string, amountUsdc: number) {
+export async function payOnce(deps: PipelineDeps, episodeId: string, contributor: string, amountUsdc: number) {
   const { store, chain } = deps;
   if (!chain || store.get(episodeId)?.payment || paying.has(episodeId)) return;
   paying.add(episodeId);
@@ -144,6 +166,7 @@ async function payOnce(deps: PipelineDeps, episodeId: string, contributor: strin
     store.update(episodeId, {
       payment: { cluster: chain.cluster, contributor, amount_usdc: amountUsdc, signature, paid_at: Math.floor(Date.now() / 1000) },
     });
+    deps.onPaid?.(store.get(episodeId)!.bounty_id);
   } catch (err) {
     store.update(episodeId, {
       payment: {

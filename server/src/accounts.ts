@@ -1,7 +1,8 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createPublicKey, randomBytes, randomInt, timingSafeEqual, verify as edVerify } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
 import type { Mailer } from "./mailer";
 
 interface UserRow {
@@ -23,6 +24,10 @@ export class AuthError extends Error {
   }
 }
 
+const CHALLENGE_TTL_MS = 5 * 60_000;
+// DER prefix of an Ed25519 SubjectPublicKeyInfo; the 32-byte key follows.
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
 const CODE_TTL_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 5;
 const MAX_SENDS_PER_HOUR = 5;
@@ -43,6 +48,7 @@ export class Accounts {
   private users: Record<string, UserRow> = {};
   private sessions: Record<string, string> = {}; // sha256(token) hex -> email
   private pending = new Map<string, Pending>();
+  private challenges = new Map<string, { message: string; expiresAt: number }>();
   private sends = new Map<string, number[]>();
   private readonly file: string;
   private readonly key: Buffer;
@@ -104,11 +110,43 @@ export class Accounts {
     return { token, email, address: user.address };
   }
 
+  /** A message for a wallet to sign, proving it controls [address]. Single use, five minutes. */
+  challenge(address: string) {
+    this.assertAddress(address);
+    const message = `Sign in to Wrk\nAddress: ${address}\nNonce: ${randomBytes(16).toString("hex")}`;
+    this.challenges.set(address, { message, expiresAt: this.now() + CHALLENGE_TTL_MS });
+    return { message };
+  }
+
+  /** Verifies the wallet's Ed25519 signature over the challenge and opens a session for that address. */
+  verifyWallet(address: string, signature: Uint8Array) {
+    this.assertAddress(address);
+    const c = this.challenges.get(address);
+    this.challenges.delete(address); // one try per challenge, right or wrong
+    if (!c || c.expiresAt < this.now()) throw new AuthError("That sign-in request expired. Try again.");
+    const key = createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(bs58.decode(address))]), format: "der", type: "spki" });
+    if (signature.length !== 64 || !edVerify(null, Buffer.from(c.message, "utf8"), key, Buffer.from(signature))) {
+      throw new AuthError("Your wallet's signature didn't check out.", 401);
+    }
+    const id = `wallet:${address}`;
+    this.users[id] ??= { address, secret: "", created_at: Math.floor(this.now() / 1000) };
+    const token = randomBytes(32).toString("base64url");
+    this.sessions[sha(token).toString("hex")] = id;
+    this.flush();
+    return { token, address, email: id };
+  }
+
+  private assertAddress(address: string) {
+    let ok = false;
+    try { ok = bs58.decode(address).length === 32; } catch { /* not base58 */ }
+    if (!ok) throw new AuthError("That isn't a valid payment address.");
+  }
+
   session(token: string | null | undefined) {
     if (!token) return null;
     const email = this.sessions[sha(token).toString("hex")];
     const user = email ? this.users[email] : undefined;
-    return user ? { email, address: user.address } : null;
+    return user ? { email, address: user.address, kind: email.startsWith("wallet:") ? ("wallet" as const) : ("email" as const) } : null;
   }
 
   signOut(token: string) {
@@ -119,7 +157,7 @@ export class Accounts {
   /** The account's secret key, for server-side anchoring only. */
   secretFor(email: string): Uint8Array | null {
     const row = this.users[email];
-    return row ? this.open(row.secret) : null;
+    return row && row.secret ? this.open(row.secret) : null;
   }
 
   private seal(plain: Uint8Array) {

@@ -20,6 +20,8 @@ const base = {
   deadline: IN_ONE_YEAR,
   created_at: 1757030400,
   status: "open" as const,
+  owner: "wrk",
+  review_policy: "none" as const,
 };
 
 export const BOUNTIES: Bounty[] = [
@@ -51,5 +53,18 @@ export const BOUNTIES: Bounty[] = [
     budget_usdc: 80,
     utility_pool_usdc: 20,
     min_episodes: 100,
+  },
+  {
+    ...base,
+    bounty_id: "bounty_007",
+    title: "Cup pick-and-place, reviewed",
+    task_spec: "Pick up a cup from a surface, move it, and place it down. First-person view. A human reviewer checks close calls, so this one pays more.",
+    task: "cup_pick_and_place",
+    per_episode_usdc: 0.9,
+    budget_usdc: 150,
+    utility_pool_usdc: 45,
+    validator_fee_usdc: 7.5,
+    treasury_fee_usdc: 7.5,
+    review_policy: "borderline",
   },
 ];

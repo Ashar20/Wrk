@@ -3,7 +3,17 @@ import { join } from "node:path";
 import type { EpisodeAnchor, EpisodePayment } from "@/lib/market/types";
 import type { ValidationResult } from "@/lib/validator/validate";
 
-export type EpisodeStatus = "scoring" | "scored" | "failed";
+export type EpisodeStatus = "scoring" | "in_review" | "scored" | "failed";
+
+export interface ReviewRecord {
+  status: "pending" | "approved" | "rejected";
+  /** What the automatic checks concluded before a person looked. */
+  auto_accepted: boolean;
+  reviewer?: string;
+  decided_at?: number;
+  note?: string;
+  fee?: { amount_usdc: number; signature?: string; error?: string };
+}
 
 export interface EpisodeRecord {
   episode_id: string;
@@ -24,6 +34,7 @@ export interface EpisodeRecord {
   scoring_error?: string | null;
   anchor?: EpisodeAnchor;
   payment?: EpisodePayment;
+  review?: ReviewRecord;
   received_at: number;
 }
 
