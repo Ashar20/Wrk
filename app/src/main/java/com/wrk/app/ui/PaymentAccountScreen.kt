@@ -50,8 +50,10 @@ fun PaymentAccountScreen(
     onSignOut: () -> Unit,
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    /** First-launch sign-in: no way back, welcoming copy. */
+    /** First-launch sign-in: welcoming copy. */
     onboarding: Boolean = false,
+    role: com.wrk.app.account.Role? = null,
+    onSwitchRole: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
@@ -78,12 +80,18 @@ fun PaymentAccountScreen(
                     Text(current.label, style = WrkType.title, color = WrkColors.foreground)
                 }
             }
-            PaperButton("Use a different account", onSignOut)
+            role?.let { r ->
+                PaperCard(Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Tag("You're using Wrk as"); Text(r.label, style = WrkType.title, color = WrkColors.foreground) }
+                }
+            }
+            if (onSwitchRole != null) PaperButton("Switch role", onSwitchRole, Modifier.fillMaxWidth())
+            PaperButton("Sign out", onSignOut, Modifier.fillMaxWidth())
             return@Column
         }
 
         Text(
-            if (onboarding) "Sign in to start earning for short recordings of everyday tasks. You don't need a crypto wallet."
+            if (onboarding) "Sign in as ${role?.label?.lowercase() ?: "yourself"}. You don't need a crypto wallet."
             else "Tell us where to send what you earn. You don't need a crypto wallet.",
             style = WrkType.body, color = WrkColors.muted,
         )

@@ -179,4 +179,27 @@ class SubmissionProcessorTest {
         assertEquals(EpisodeStatus.Paid, store.state("ep1")!!.status)
         assertTrue(!store.state("ep1")!!.predictionsSent)
     }
+
+    @Test fun aTakeHeldForAReviewerIsShownAsSuchAndThenSettles() = runTest {
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += listOf(view("in_review"), view("in_review"), view("scored", true, pay = "p"))
+        assertEquals(ProcessOutcome.Finished, processor().process("ep1"))
+        assertEquals(EpisodeStatus.Paid, store.state("ep1")!!.status)
+    }
+
+    @Test fun stillWaitingOnAReviewerKeepsItInReviewAndComesBackLater() = runTest {
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        repeat(10) { api.fetches += view("in_review") }
+        assertEquals(ProcessOutcome.TryAgain, processor().process("ep1"))
+        assertEquals(EpisodeStatus.InReview, store.state("ep1")!!.status)
+        assertEquals(0.0, store.state("ep1")!!.paidUsd, 0.0)
+    }
+
+    @Test fun aReviewerRejectionEndsRejectedWithTheirReason() = runTest {
+        store.update("ep1") { it.copy(status = EpisodeStatus.InReview) }
+        api.fetches += view("scored", false, listOf("A reviewer checked this take and didn't find it genuine."))
+        processor().process("ep1")
+        val s = store.state("ep1")!!
+        assertEquals(EpisodeStatus.Rejected, s.status); assertTrue(s.reasons.single().contains("reviewer"))
+    }
 }

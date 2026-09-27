@@ -78,6 +78,7 @@ class SubmissionProcessor(
             store.update(id) { it.copy(waiting = false) }
             if (v.status == "scored") recordMetrics(id, v)
             when {
+                v.status == "in_review" -> store.update(id) { it.copy(status = EpisodeStatus.InReview) }
                 v.status == "failed" -> {
                     store.update(id) { it.copy(status = EpisodeStatus.Rejected, reasons = listOf("We couldn't check this take. Please record it again.")) }
                     return ProcessOutcome.Finished

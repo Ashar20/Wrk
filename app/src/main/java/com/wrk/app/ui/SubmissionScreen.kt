@@ -153,17 +153,17 @@ fun SubmissionScreen(
 
 @Composable
 private fun Steps(s: EpisodeState) {
-    val stage = when (s.status) { EpisodeStatus.NotSubmitted -> 0; EpisodeStatus.Submitted, EpisodeStatus.Validating -> 1; else -> 2 }
+    val stage = when (s.status) { EpisodeStatus.NotSubmitted -> 0; EpisodeStatus.Submitted, EpisodeStatus.Validating, EpisodeStatus.InReview -> 1; else -> 2 }
     PaperCard(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            listOf("Sending your take", "Checking it against the task", "Processing payment").forEachIndexed { i, label ->
+            listOf("Sending your take", if (s.status == EpisodeStatus.InReview) "A reviewer is checking your take" else "Checking it against the task", "Processing payment").forEachIndexed { i, label ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     val color = when { i < stage -> WrkColors.positive; i == stage -> WrkColors.ink; else -> WrkColors.paperSunk }
                     Column(Modifier.size(14.dp).clip(CircleShape).background(color)) {}
                     Text(label, style = WrkType.body, color = if (i <= stage) WrkColors.foreground else WrkColors.subtle)
                 }
             }
-            Tag("Usually under a minute")
+            Tag(if (s.status == EpisodeStatus.InReview) "This one was close, so a person is looking at it. It can take a little while." else "Usually under a minute")
         }
     }
 }

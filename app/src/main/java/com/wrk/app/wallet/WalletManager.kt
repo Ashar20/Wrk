@@ -9,9 +9,15 @@ import com.solana.mobilewalletadapter.clientlib.TransactionResult
 import com.wrk.app.account.AccountStore
 
 sealed interface WalletResult {
-    data class Connected(val address: String) : WalletResult
+    data class Connected(val address: String, val token: String? = null) : WalletResult
     data object NoWalletInstalled : WalletResult
     data class Failed(val message: String) : WalletResult
+}
+
+sealed interface SignResult {
+    class Signed(val signature: ByteArray) : SignResult
+    data object NoWalletInstalled : SignResult
+    data class Failed(val message: String) : SignResult
 }
 
 sealed interface SendResult {
@@ -56,6 +62,22 @@ class WalletManager(private val store: AccountStore) {
             is TransactionResult.NoWalletFound -> SendResult.NoWalletInstalled
             is TransactionResult.Failure -> SendResult.Failed(friendly(r.e))
         }
+        }
+
+    /** Asks the wallet to sign a short message, proving the person holds the address. Null if they decline. */
+    suspend fun signMessage(sender: ActivityResultSender, message: String): SignResult =
+        adapter.transact(sender) { authResult ->
+            signMessagesDetached(arrayOf(message.toByteArray(Charsets.UTF_8)), arrayOf(authResult.accounts.first().publicKey))
+        }.let { r ->
+            when (r) {
+                is TransactionResult.Success -> {
+                    store.walletAuthToken = r.authResult.authToken
+                    r.payload?.messages?.firstOrNull()?.signatures?.firstOrNull()
+                        ?.let { SignResult.Signed(it) } ?: SignResult.Failed("Your wallet didn't return a signature.")
+                }
+                is TransactionResult.NoWalletFound -> SignResult.NoWalletInstalled
+                is TransactionResult.Failure -> SignResult.Failed(friendly(r.e))
+            }
         }
 
     suspend fun disconnect(sender: ActivityResultSender) {

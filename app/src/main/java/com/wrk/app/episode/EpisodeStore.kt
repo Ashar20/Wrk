@@ -12,7 +12,7 @@ data class OverlayStats(val detections: Int, val meanDetectMs: Double, val error
     }
 }
 
-enum class EpisodeStatus { NotSubmitted, Submitted, Validating, Accepted, Paid, Rejected }
+enum class EpisodeStatus { NotSubmitted, Submitted, Validating, InReview, Accepted, Paid, Rejected }
 
 data class EpisodeState(
     val status: EpisodeStatus = EpisodeStatus.NotSubmitted,

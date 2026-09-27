@@ -77,15 +77,18 @@ internal fun meterTone(v: Double?): Color = when {
     else -> WrkColors.negative
 }
 
-internal fun framingHint(s: EpisodeState) =
-    if (s.handsVisiblePercent == 0.0) "The camera never saw your hands. Tilt the phone down."
+internal fun framingHint(handsVisiblePercent: Double?) =
+    if (handsVisiblePercent == 0.0) "The camera never saw your hands. Tilt the phone down."
     else "How much of the take had your hands where the task needs them."
 
-internal fun motionHint(s: EpisodeState) = when {
-    s.plausibility == null -> "You barely moved your head, so there was nothing to check against."
-    s.motionCorr != null && s.motionCorr < 0.4 -> "Walking and looking around scores far higher than standing still."
+internal fun motionHint(plausibility: Double?, motionCorr: Double?) = when {
+    plausibility == null -> "You barely moved your head, so there was nothing to check against."
+    motionCorr != null && motionCorr < 0.4 -> "Walking and looking around scores far higher than standing still."
     else -> "Whether what the camera saw matches how the phone moved."
 }
+
+internal fun framingHint(s: EpisodeState) = framingHint(s.handsVisiblePercent)
+internal fun motionHint(s: EpisodeState) = motionHint(s.plausibility, s.motionCorr)
 
 @Composable
 private fun MetersCard(s: EpisodeState) {
@@ -134,6 +137,12 @@ private fun TracesCard(dir: File, scored: Boolean?) {
     }
     val t = traces ?: return
     if (t.isEmpty) return
+    TracesBlock(t)
+}
+
+/** The two traces, flow against gyroscope, for turning and tilting. Shared by the contributor's result and the verifier's review. */
+@Composable
+fun TracesBlock(t: TracePoints) {
     PaperCard(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("What the check saw", style = WrkType.body.copy(fontWeight = FontWeight.Medium), color = WrkColors.foreground)

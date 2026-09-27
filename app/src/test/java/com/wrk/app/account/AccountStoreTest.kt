@@ -20,6 +20,22 @@ class AccountStoreTest {
         assertEquals("mwa", s.walletAuthToken)
     }
 
+    @Test fun walletSessionTokenAndRoleSurviveRestart() {
+        val kv = MemoryKeyValue()
+        AccountStore(kv).apply { save(Account.Wallet("W", "sess")); role = Role.Verifier }
+        val back = AccountStore(kv)
+        assertEquals(Account.Wallet("W", "sess"), back.load()); assertEquals("sess", back.load()!!.sessionToken); assertEquals(Role.Verifier, back.role)
+    }
+
+    @Test fun switchingAccountKeepsTheRoleButSigningOutForgetsIt() {
+        val s = AccountStore(MemoryKeyValue())
+        s.save(Account.Email("a@b.co", "X", "t")); s.role = Role.Buyer
+        s.save(Account.Wallet("W"))
+        assertEquals(Role.Buyer, s.role)
+        s.clear()
+        assertNull(s.role)
+    }
+
     @Test fun switchingAccountReplacesPreviousOne() {
         val s = AccountStore(MemoryKeyValue())
         s.save(Account.Email("a@b.co", "X", "t"))

@@ -36,7 +36,7 @@ class AccountStore(private val kv: KeyValue) {
             val email = kv.get("email"); val address = kv.get("address"); val token = kv.get("token")
             if (email != null && address != null && token != null) Account.Email(email, address, token) else null
         }
-        "wallet" -> kv.get("address")?.let { Account.Wallet(it) }
+        "wallet" -> kv.get("address")?.let { Account.Wallet(it, kv.get("token")) }
         else -> null
     }
 
@@ -44,14 +44,20 @@ class AccountStore(private val kv: KeyValue) {
         clear(keepWalletToken = true)
         when (a) {
             is Account.Email -> { kv.put("type", "email"); kv.put("email", a.email); kv.put("address", a.address); kv.put("token", a.token) }
-            is Account.Wallet -> { kv.put("type", "wallet"); kv.put("address", a.address) }
+            is Account.Wallet -> { kv.put("type", "wallet"); kv.put("address", a.address); a.token?.let { kv.put("token", it) } }
         }
     }
 
     fun clear(keepWalletToken: Boolean = false) {
         listOf("type", "email", "address", "token").forEach(kv::remove)
+        if (!keepWalletToken) kv.remove("role")
         if (!keepWalletToken) kv.remove(MWA_TOKEN)
     }
+
+    /** How this person is using Wrk right now. Survives restarts; changeable any time. */
+    var role: Role?
+        get() = kv.get("role")?.let { r -> Role.entries.firstOrNull { it.name == r } }
+        set(v) { if (v == null) kv.remove("role") else kv.put("role", v.name) }
 
     /** Stable random id for this install; becomes the episode's asset id. */
     fun installId(): String = kv.get("install_id") ?: java.util.UUID.randomUUID().toString().replace("-", "").take(12).also { kv.put("install_id", it) }

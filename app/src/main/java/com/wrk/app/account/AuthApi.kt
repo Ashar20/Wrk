@@ -26,6 +26,15 @@ class AuthApi(
         return Account.Email(o.getString("email"), o.getString("address"), o.getString("token"))
     }
 
+    /** A one-time message for the wallet to sign. */
+    suspend fun walletChallenge(address: String): String =
+        post("/auth/wallet/challenge", JSONObject().put("address", address)).getString("message")
+
+    /** Trades the wallet's signature for a session. */
+    suspend fun walletVerify(address: String, signature: ByteArray): String =
+        post("/auth/wallet/verify", JSONObject().put("address", address).put("signature", android.util.Base64.encodeToString(signature, android.util.Base64.NO_WRAP)))
+            .getString("token")
+
     private suspend fun post(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder().url(baseUrl + path)

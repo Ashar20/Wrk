@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 private fun label(s: EpisodeStatus) = when (s) {
     EpisodeStatus.NotSubmitted -> "Sending"
     EpisodeStatus.Submitted, EpisodeStatus.Validating -> "Checking"
+    EpisodeStatus.InReview -> "A reviewer is checking"
     EpisodeStatus.Accepted -> "Processing payment"
     EpisodeStatus.Paid -> "Paid"
     EpisodeStatus.Rejected -> "Not accepted"

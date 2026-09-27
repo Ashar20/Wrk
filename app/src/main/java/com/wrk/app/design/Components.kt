@@ -179,16 +179,15 @@ fun ButterButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifi
     ) { Text(label, style = WrkType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = WrkColors.butterInk) }
 }
 
-enum class DockTab(val label: String) { Tasks("Tasks"), Activity("Activity") }
 
 /** Ink bar at panel radius with a record disc cut out of its top edge. */
 @Composable
-fun Dock(selected: DockTab?, onSelect: (DockTab) -> Unit, onDisc: () -> Unit, modifier: Modifier = Modifier) {
+fun Dock(labels: Pair<String, String>, selected: Int?, onSelect: (Int) -> Unit, onDisc: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().background(WrkColors.bone).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 14.dp)) {
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(WrkShape.panel)).background(WrkColors.ink).padding(top = 10.dp, bottom = 8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                DockItem(DockTab.Tasks, selected == DockTab.Tasks, { onSelect(DockTab.Tasks) }, Modifier.weight(1f).padding(end = 40.dp))
-                DockItem(DockTab.Activity, selected == DockTab.Activity, { onSelect(DockTab.Activity) }, Modifier.weight(1f).padding(start = 40.dp))
+                DockItem(0, labels.first, selected == 0, { onSelect(0) }, Modifier.weight(1f).padding(end = 40.dp))
+                DockItem(1, labels.second, selected == 1, { onSelect(1) }, Modifier.weight(1f).padding(start = 40.dp))
             }
         }
         Box(
@@ -201,19 +200,19 @@ fun Dock(selected: DockTab?, onSelect: (DockTab) -> Unit, onDisc: () -> Unit, mo
 }
 
 @Composable
-private fun DockItem(tab: DockTab, active: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun DockItem(index: Int, label: String, active: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val c = if (active) WrkColors.onInk else WrkColors.onInkMuted
     Column(modifier.clickable(role = Role.Tab, onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
         Canvas(Modifier.size(22.dp)) {
             val w = 1.8.dp.toPx()
             val st = Stroke(w, cap = StrokeCap.Round)
-            if (tab == DockTab.Tasks) {
+            if (index == 0) {
                 drawRoundRect(c, topLeft = Offset(size.width * .12f, size.height * .12f), size = androidx.compose.ui.geometry.Size(size.width * .76f, size.height * .76f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()), style = st)
             } else {
                 for (i in 0..2) { val y = size.height * (.25f + .25f * i); drawLine(c, Offset(size.width * .15f, y), Offset(size.width * .85f, y), w, StrokeCap.Round) }
             }
         }
-        Text(tab.label, style = WrkType.label, color = c)
+        Text(label, style = WrkType.label, color = c)
     }
 }
 

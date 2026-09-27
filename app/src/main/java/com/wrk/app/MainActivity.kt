@@ -2,14 +2,15 @@ package com.wrk.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -18,7 +19,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -26,20 +26,35 @@ import androidx.navigation.compose.rememberNavController
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 import com.wrk.app.account.Account
 import com.wrk.app.account.AuthApi
+import com.wrk.app.account.AuthException
+import com.wrk.app.account.Role
+import com.wrk.app.account.SessionService
 import com.wrk.app.data.ApiBountyRepository
 import com.wrk.app.data.Bounty
 import com.wrk.app.design.Dock
-import com.wrk.app.design.DockTab
 import com.wrk.app.design.WrkColors
 import com.wrk.app.design.WrkTheme
+import com.wrk.app.roles.BuyerApi
+import com.wrk.app.roles.BuyerBounty
+import com.wrk.app.roles.JsonApi
+import com.wrk.app.roles.ReviewApi
+import com.wrk.app.roles.ReviewItem
 import com.wrk.app.ui.ActivityScreen
 import com.wrk.app.ui.BountyDetailScreen
+import com.wrk.app.ui.BuyerBountyScreen
+import com.wrk.app.ui.BuyerDashboardScreen
 import com.wrk.app.ui.CaptureScreen
 import com.wrk.app.ui.HomeScreen
+import com.wrk.app.ui.NewBountyScreen
 import com.wrk.app.ui.PaymentAccountScreen
+import com.wrk.app.ui.ReviewDetailScreen
+import com.wrk.app.ui.ReviewHistoryScreen
+import com.wrk.app.ui.ReviewQueueScreen
 import com.wrk.app.ui.ReviewScreen
+import com.wrk.app.ui.RoleChooserScreen
 import com.wrk.app.ui.SubmissionScreen
 import com.wrk.app.upload.SubmissionService
+import com.wrk.app.wallet.WalletResult
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -59,6 +74,20 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun homeFor(r: Role) = when (r) { Role.Contributor -> "home"; Role.Verifier -> "queue"; Role.Buyer -> "dash" }
+
+private fun dockLabels(r: Role) = when (r) {
+    Role.Contributor -> "Tasks" to "Activity"
+    Role.Verifier -> "Queue" to "History"
+    Role.Buyer -> "Tasks" to "Post a task"
+}
+
+private fun dockSelection(r: Role, route: String?) = when (r) {
+    Role.Contributor -> when (route) { "home" -> 0; "activity" -> 1; else -> null }
+    Role.Verifier -> when (route) { "queue" -> 0; "rhistory" -> 1; else -> null }
+    Role.Buyer -> when (route) { "dash" -> 0; "newtask" -> 1; else -> null }
+}
+
 @Composable
 private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val context = LocalContext.current
@@ -66,31 +95,73 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val scope = rememberCoroutineScope()
     val repo = remember { ApiBountyRepository(BuildConfig.API_BASE) }
     val auth = remember { AuthApi(BuildConfig.API_BASE) }
+    val sessions = remember { SessionService(auth, c.wallet) }
     val service = remember { SubmissionService(context.applicationContext, c) }
+    // The store is the source of truth for the session, so every call sees a fresh token.
+    val json = remember { JsonApi(BuildConfig.API_BASE, { c.accounts.load()?.sessionToken }) }
+    val reviewApi = remember { ReviewApi(json) }
+    val buyerApi = remember { BuyerApi(json) }
+
     val list by produceState<List<Bounty>?>(null) { value = repo.bounties() }
     val bounties = list ?: emptyList()
     var account by remember { mutableStateOf(c.accounts.load()) }
+    var role by remember { mutableStateOf(c.accounts.role) }
+    var rolesProblem by remember { mutableStateOf<String?>(null) }
+    var selectedReview by remember { mutableStateOf<ReviewItem?>(null) }
+    var selectedBuyer by remember { mutableStateOf<BuyerBounty?>(null) }
     val earned by produceState(0.0) { while (true) { value = c.episodes.earnedUsd; delay(2000) } }
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
 
-    // Sign in first: a signed-out launch lands on login, never on Home.
-    val start = remember { if (c.accounts.load() == null) "login" else "home" }
+    // Sign in first, and say how you'll use Wrk. Both are remembered across launches.
+    val start = remember { if (c.accounts.load() == null || c.accounts.role == null) "login" else homeFor(c.accounts.role!!) }
+    val activeRole = role ?: Role.Contributor
 
-    fun goHome() { nav.navigate("home") { popUpTo(nav.graph.id) { inclusive = true } } }
+    fun goHome(r: Role = activeRole) { nav.navigate(homeFor(r)) { popUpTo(nav.graph.id) { inclusive = true } } }
+
+    /** Verifier and Buyer need the validator to know who they are. Wallet users prove it by signing a message once. */
+    suspend fun sessionFor(r: Role, a: Account?): Pair<Account?, String?> {
+        if (!r.needsSession || a == null || a.sessionToken != null) return a to null
+        if (a !is Account.Wallet) return a to "Sign in again to use this role."
+        return try {
+            val upgraded = Account.Wallet(a.address, sessions.walletToken(sender, a.address))
+            c.accounts.save(upgraded)
+            upgraded to null
+        } catch (e: AuthException) { a to e.message }
+    }
 
     Column(Modifier.fillMaxSize().background(WrkColors.bone).statusBarsPadding()) {
         NavHost(nav, startDestination = start, modifier = Modifier.weight(1f)) {
             composable("login") {
-                PaymentAccountScreen(
-                    current = null,
-                    auth = auth,
-                    onConnectWallet = { c.wallet.connect(sender) },
-                    onSignedIn = { c.accounts.save(it); account = it; goHome() },
-                    onSignOut = {},
-                    onBack = null,
-                    onboarding = true,
-                )
+                var picked by remember { mutableStateOf<Role?>(null) }
+                val chosen = picked
+                if (chosen == null) {
+                    RoleChooserScreen(current = null, title = "How will you use Wrk?", onPick = { picked = it }, onBack = null)
+                } else {
+                    PaymentAccountScreen(
+                        current = null,
+                        auth = auth,
+                        onConnectWallet = {
+                            when (val r = c.wallet.connect(sender)) {
+                                is WalletResult.Connected -> {
+                                    val (a, err) = sessionFor(chosen, Account.Wallet(r.address))
+                                    if (err != null) WalletResult.Failed(err) else WalletResult.Connected(r.address, a?.sessionToken)
+                                }
+                                else -> r
+                            }
+                        },
+                        onSignedIn = {
+                            c.accounts.save(it); c.accounts.role = chosen
+                            account = it; role = chosen; goHome(chosen)
+                        },
+                        onSignOut = {},
+                        onBack = { picked = null },
+                        onboarding = true,
+                        role = chosen,
+                    )
+                }
             }
+
+            // ---- contributor -----------------------------------------------------------------------------------------
             composable("home") {
                 HomeScreen(bounties, earned, account, onAccount = { nav.navigate("account") }, onOpen = { nav.navigate("bounty/${it.id}") })
             }
@@ -108,12 +179,12 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
             }
             composable("review") {
                 val p = c.pending
-                if (p == null) { goHome() } else ReviewScreen(
+                if (p == null) { LaunchedEffect(Unit) { goHome() } } else ReviewScreen(
                     pending = p,
                     hasAccount = account != null,
                     onSubmit = { report ->
                         val id = service.submit(p, checkNotNull(account), report)
-                        nav.navigate("submission/$id") { popUpTo("home") }
+                        nav.navigate("submission/$id") { popUpTo(nav.graph.id) { inclusive = true } }
                     },
                     onNeedAccount = { nav.navigate("account") },
                     onDiscard = {
@@ -133,8 +204,39 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     onBack = { goHome() },
                 )
             }
-            composable("activity") {
-                ActivityScreen(c.episodes, onOpen = { nav.navigate("submission/${it.id}") })
+            composable("activity") { ActivityScreen(c.episodes, onOpen = { nav.navigate("submission/${it.id}") }) }
+
+            // ---- verifier --------------------------------------------------------------------------------------------
+            composable("queue") { ReviewQueueScreen(reviewApi, onOpen = { selectedReview = it; nav.navigate("rv") }) }
+            composable("rv") {
+                val item = selectedReview
+                if (item == null) LaunchedEffect(Unit) { goHome() } else ReviewDetailScreen(item, reviewApi, onDone = { nav.popBackStack() }, onBack = { nav.popBackStack() })
+            }
+            composable("rhistory") { ReviewHistoryScreen(reviewApi) }
+
+            // ---- buyer -----------------------------------------------------------------------------------------------
+            composable("dash") { BuyerDashboardScreen(buyerApi, onOpen = { selectedBuyer = it; nav.navigate("bountyd") }, onNew = { nav.navigate("newtask") }) }
+            composable("bountyd") {
+                val b = selectedBuyer
+                if (b == null) LaunchedEffect(Unit) { goHome() } else BuyerBountyScreen(b, buyerApi, onBack = { nav.popBackStack() })
+            }
+            composable("newtask") { NewBountyScreen(buyerApi, onCreated = { goHome(Role.Buyer) }) }
+
+            // ---- shared ----------------------------------------------------------------------------------------------
+            composable("roles") {
+                RoleChooserScreen(
+                    current = role, title = "Switch role", problem = rolesProblem,
+                    onBack = { nav.popBackStack() },
+                    onPick = { picked ->
+                        scope.launch {
+                            rolesProblem = null
+                            val (a, err) = sessionFor(picked, account)
+                            if (err != null) { rolesProblem = err; return@launch }
+                            account = a; c.accounts.role = picked; role = picked
+                            goHome(picked)
+                        }
+                    },
+                )
             }
             composable("account") {
                 PaymentAccountScreen(
@@ -145,18 +247,34 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     onSignOut = {
                         scope.launch {
                             if (account is Account.Wallet) c.wallet.disconnect(sender)
-                            c.accounts.clear(); account = null
-                            nav.navigate("login") { popUpTo(0) }
+                            c.accounts.clear(); account = null; role = null
+                            nav.navigate("login") { popUpTo(nav.graph.id) { inclusive = true } }
                         }
                     },
                     onBack = { nav.popBackStack() },
+                    role = role,
+                    onSwitchRole = { rolesProblem = null; nav.navigate("roles") },
                 )
             }
         }
         if (route != "login") Dock(
-            selected = when { route == "activity" -> DockTab.Activity; route == "home" -> DockTab.Tasks; else -> null },
-            onSelect = { tab -> if (tab == DockTab.Tasks) goHome() else nav.navigate("activity") { popUpTo("home") } },
-            onDisc = { bounties.firstOrNull()?.let { nav.navigate("bounty/${it.id}") { popUpTo("home") } } },
+            labels = dockLabels(activeRole),
+            selected = dockSelection(activeRole, route),
+            onSelect = { i ->
+                val dest = when (activeRole) {
+                    Role.Contributor -> if (i == 0) "home" else "activity"
+                    Role.Verifier -> if (i == 0) "queue" else "rhistory"
+                    Role.Buyer -> if (i == 0) "dash" else "newtask"
+                }
+                nav.navigate(dest) { popUpTo(homeFor(activeRole)) }
+            },
+            onDisc = {
+                when (activeRole) {
+                    Role.Contributor -> bounties.firstOrNull()?.let { nav.navigate("bounty/${it.id}") { popUpTo("home") } }
+                    Role.Verifier -> nav.navigate("queue") { popUpTo("queue") }
+                    Role.Buyer -> nav.navigate("newtask") { popUpTo("dash") }
+                }
+            },
         )
     }
 }
