@@ -21,6 +21,16 @@ Record a short first-person clip, submit it, and Wrk checks that the video and y
 5. The validator re-hashes everything, compares optical flow with gyroscope motion, and checks for duplicates.
 6. A memo carrying the manifest hash is anchored on Solana, then accepted takes are paid in the reward token.
 
+### Three ways to use Wrk
+
+Sign-in asks how you'll use it, and you can switch from your account any time.
+
+- **Contributor:** record tasks and get paid, as above.
+- **Verifier:** a queue of takes the automatic checks couldn't call. Watch the video, see the scores and motion traces, approve or reject. You're paid a small fee per decision from the task's reviewer pool. You can't review your own takes. Tasks opt in to this with "a person reviews close calls"; takes within 15 points of a task's bar wait for a verifier instead of being decided automatically.
+- **Buyer:** post a task (name, instructions, pay per take, number of takes), watch accepted, rejected and in-review counts, score spread and spend, and share a dataset manifest of the accepted takes. The budget splits 60% takes, 30% bonus pool, 5% reviewers, 5% Wrk. Funding is simulated in this demo.
+
+Verifier and Buyer need the validator to know who you are. Email accounts have that from sign-in; wallet users sign a one-time message once.
+
 ### Payment accounts
 
 - **Email:** sign in with a code sent to your email. Wrk holds a payment account for you, anchors your takes, and covers fees. Nothing to install.

@@ -16,4 +16,12 @@ Setup: validator running with devnet configured, phone connected, `adb reverse t
    ```
    The replay scores about 4% on motion match and is rejected with a plain-language reason. No payment.
 
+## Verifier and buyer
+
+8. **Verifier.** Sign in on a second phone (or sign out and back in) as a Verifier. The queue shows takes held for review; open one, watch it, check the scores and traces, approve. The contributor's phone moves from "a reviewer is checking" to paid, and the verifier sees the fee in History. Submit the real fixture to the reviewed task to get one in the queue:
+   ```sh
+   npx tsx scripts/submit-fixture.ts test/fixtures/real --bounty bounty_007
+   ```
+9. **Buyer.** Sign in as a Buyer, post a task, then open a task to see accepted, rejected and in-review counts, the score spread and spend. Share the dataset manifest once a take is accepted.
+
 Fallback if recording isn't possible: run the two fixture commands above and show the results.
