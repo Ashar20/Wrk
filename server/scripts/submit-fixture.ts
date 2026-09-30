@@ -12,7 +12,7 @@ import { decodeImuStream } from "../src/lib/capture/imu-codec";
 const args = process.argv.slice(2);
 const flag = (n: string, d?: string) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
 const dir = args[0];
-if (!dir) throw new Error("usage: submit-fixture.ts <fixtureDir> [--imu <dir>] [--bounty id] [--url u] [--contributor addr] [--anchor sig]");
+if (!dir) throw new Error("usage: submit-fixture.ts <fixtureDir> [--imu <dir>] [--bounty id] [--url u] [--contributor addr] [--anchor sig] [--token session]");
 const url = flag("--url", "http://127.0.0.1:8787")!;
 const bountyId = flag("--bounty", "bounty_004")!;
 const contributor = flag("--contributor", "9xQeWvG816bUx9EPfEZEoPqdNaE4gqCNTNqmbFnfZoxM")!;
@@ -47,7 +47,8 @@ form.set("imu", new Blob([imu]), "imu.bin");
 const anchor = flag("--anchor");
 if (anchor) form.set("anchor_signature", anchor);
 
-const res = await fetch(`${url}/episodes`, { method: "POST", body: form });
+const token = flag("--token");
+const res = await fetch(`${url}/episodes`, { method: "POST", body: form, headers: token ? { authorization: `Bearer ${token}` } : {} });
 console.log("upload:", res.status, await res.text());
 for (let i = 0; i < 120; i++) {
   const v = await (await fetch(`${url}/episodes/${id}`)).json();
