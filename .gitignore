@@ -18,3 +18,7 @@ server/data/
 *.jks
 keystore.properties
 keystore/
+escrow/target/
+escrow/node_modules/
+escrow/keys/
+escrow/.anchor/
