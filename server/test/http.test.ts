@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createHttpServer } from "../src/http";
 import { Store } from "../src/store";
-import { memoText, type ChainPort } from "../src/solana/chain";
+import { FakeChain } from "./fakeChain";
 import { Accounts } from "../src/accounts";
 import { BountyStore } from "../src/bountyStore";
 import type { Mailer } from "../src/mailer";
@@ -30,27 +30,6 @@ class CaptureMailer implements Mailer {
   codes: Record<string, string> = {};
   async sendCode(to: string, code: string) {
     this.codes[to] = code;
-  }
-}
-
-class FakeChain implements ChainPort {
-  cluster = "devnet";
-  payouts: Array<{ contributor: string; amountUsdc: number }> = [];
-  memos = new Set<string>();
-  async verifyMemo(sig: string, e: { signer: string; memo: string }) {
-    return this.memos.has(`${sig}|${e.signer}|${e.memo}`);
-  }
-  anchored: Array<{ memo: string; signer: string }> = [];
-  async anchor(a: { signerSecret: Uint8Array; memo: string }) {
-    const signer = Keypair.fromSecretKey(a.signerSecret).publicKey.toBase58();
-    this.anchored.push({ memo: a.memo, signer });
-    const sig = `anchor-sig-${this.anchored.length}`;
-    this.memos.add(`${sig}|${signer}|${a.memo}`);
-    return sig;
-  }
-  async pay(a: { contributor: string; amountUsdc: number }) {
-    this.payouts.push(a);
-    return `payout-sig-${this.payouts.length}`;
   }
 }
 
@@ -101,6 +80,7 @@ describe("validator HTTP", () => {
   let base = "";
   let server: ReturnType<typeof createHttpServer>;
   let chain: FakeChain;
+  const ref = (bountyId = "bounty_004") => ({ buyer: chain.validator, bountyId });
   let plausibility: number | null;
   let accounts: Accounts;
   let mailer: CaptureMailer;
@@ -110,10 +90,12 @@ describe("validator HTTP", () => {
     plausibility = 90;
     mailer = new CaptureMailer();
     accounts = new Accounts(mkdtempSync(join(tmpdir(), "wrk-acc-")), mailer);
+    const bountyStore = new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-")));
+    await chain.seed(bountyStore);
     server = createHttpServer({
       store: new Store(mkdtempSync(join(tmpdir(), "wrk-test-"))),
       accounts,
-      bounties: new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-"))),
+      bounties: bountyStore,
       chain,
       score: async () => scores(plausibility),
       requireAnchor: true,
@@ -132,11 +114,11 @@ describe("validator HTTP", () => {
 
   it("accepts an anchored, plausible episode and pays exactly once", async () => {
     const ep = await makeEpisode();
-    chain.memos.add(`sig1|${CONTRIBUTOR}|${memoText("bounty_004", ep.id, ep.manifest.manifest_hash)}`);
+    chain.walletSubmit(ref(), ep.id, ep.manifest.manifest_hash, CONTRIBUTOR);
     expect((await upload(base, ep, "sig1")).status).toBe(202);
     const done = await settled(base, ep.id);
     expect(done.accepted).toBe(true);
-    expect(done.payment.signature).toBe("payout-sig-1");
+    expect(done.payment.signature).toBe("accept-1");
     expect(done.payment.amount_usdc).toBe(0.6);
 
     // Retried upload is idempotent: same record, no second payout.
@@ -148,7 +130,7 @@ describe("validator HTTP", () => {
   it("never pays a low-plausibility (replay) episode", async () => {
     plausibility = 11;
     const ep = await makeEpisode({ id: "ep_" + "cd34".repeat(6) });
-    chain.memos.add(`sig2|${CONTRIBUTOR}|${memoText("bounty_004", ep.id, ep.manifest.manifest_hash)}`);
+    chain.walletSubmit(ref(), ep.id, ep.manifest.manifest_hash, CONTRIBUTOR);
     await upload(base, ep, "sig2");
     const done = await settled(base, ep.id);
     expect(done.accepted).toBe(false);
@@ -176,7 +158,9 @@ describe("validator HTTP", () => {
   it("marks an episode failed, not stuck, when scoring throws", async () => {
     server.close();
     const store = new Store(mkdtempSync(join(tmpdir(), "wrk-test-")));
-    server = createHttpServer({ store, accounts, bounties: new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-"))), chain, score: async () => { throw new Error("no frames"); }, requireAnchor: true });
+    const failStore = new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-")));
+    await chain.seed(failStore);
+    server = createHttpServer({ store, accounts, bounties: failStore, chain, score: async () => { throw new Error("no frames"); }, requireAnchor: true });
     await new Promise<void>((r) => server.listen(0, r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const ep = await makeEpisode({ id: "ep_" + "9f8e".repeat(6) });
@@ -245,7 +229,7 @@ describe("validator HTTP", () => {
 
   it("exposes the measured metrics the result screen shows, and nothing secret", async () => {
     const ep = await makeEpisode({ id: "ep_" + "1a2b".repeat(6) });
-    chain.memos.add(`s|${CONTRIBUTOR}|${memoText("bounty_004", ep.id, ep.manifest.manifest_hash)}`);
+    chain.walletSubmit(ref(), ep.id, ep.manifest.manifest_hash, CONTRIBUTOR);
     await upload(base, ep, "s");
     const done = await settled(base, ep.id);
     expect(done.framing).toBeCloseTo(0.8);
@@ -257,7 +241,7 @@ describe("validator HTTP", () => {
 
   it("serves the aligned traces and the saved prediction strip", async () => {
     const ep = await makeEpisode({ id: "ep_" + "3c4d".repeat(6) });
-    chain.memos.add(`s|${CONTRIBUTOR}|${memoText("bounty_004", ep.id, ep.manifest.manifest_hash)}`);
+    chain.walletSubmit(ref(), ep.id, ep.manifest.manifest_hash, CONTRIBUTOR);
     await upload(base, ep, "s");
     await settled(base, ep.id);
     expect((await (await fetch(`${base}/episodes/${ep.id}/traces`)).json()).traces).toEqual([]);

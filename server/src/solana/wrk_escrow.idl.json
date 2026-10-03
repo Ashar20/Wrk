@@ -1,0 +1,951 @@
+{
+  "address": "8swdg4fKWMoqhcNLW4CS9hLdararEUKbjA8yB5Z3n9Qd",
+  "metadata": {
+    "name": "wrk_escrow",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Per-task escrow for Wrk: a buyer funds a vault, the validator releases a fixed amount per accepted take."
+  },
+  "instructions": [
+    {
+      "name": "accept_episode",
+      "docs": [
+        "Validator only. Pays the contributor exactly `per_episode` from the vault."
+      ],
+      "discriminator": [
+        116,
+        243,
+        211,
+        232,
+        111,
+        217,
+        5,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "validator",
+          "docs": [
+            "The task's validator. Also pays to create the contributor's token account if it doesn't exist yet."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "bounty"
+          ]
+        },
+        {
+          "name": "bounty",
+          "writable": true,
+          "relations": [
+            "episode"
+          ]
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "bounty"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "episode",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  105,
+                  115,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bounty"
+              },
+              {
+                "kind": "account",
+                "path": "episode.episode_id",
+                "account": "Episode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "contributor"
+        },
+        {
+          "name": "contributor_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "contributor"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "score_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "create_bounty",
+      "docs": [
+        "Opens a task and its empty vault. `bounty_id` is the SHA-256 of the task's public id."
+      ],
+      "discriminator": [
+        122,
+        90,
+        14,
+        143,
+        8,
+        125,
+        200,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays rent and fees. May be the buyer, or a sponsor."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "buyer",
+          "docs": [
+            "Owns the task and its refund rights."
+          ],
+          "signer": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "bounty",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  117,
+                  110,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "arg",
+                "path": "bounty_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bounty"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "bounty_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "validator",
+          "type": "pubkey"
+        },
+        {
+          "name": "per_episode",
+          "type": "u64"
+        },
+        {
+          "name": "max_episodes",
+          "type": "u32"
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
+        },
+        {
+          "name": "grace_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "expire_episode",
+      "docs": [
+        "Buyer only, after the deadline plus the grace period: gives up on a take the validator never decided, so its",
+        "reservation can't lock funds forever."
+      ],
+      "discriminator": [
+        195,
+        55,
+        16,
+        145,
+        118,
+        159,
+        113,
+        3
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "signer": true,
+          "relations": [
+            "bounty"
+          ]
+        },
+        {
+          "name": "bounty",
+          "writable": true,
+          "relations": [
+            "episode"
+          ]
+        },
+        {
+          "name": "episode",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  105,
+                  115,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bounty"
+              },
+              {
+                "kind": "account",
+                "path": "episode.episode_id",
+                "account": "Episode"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "fund_bounty",
+      "docs": [
+        "Anyone can add tokens to a task's vault; the buyer normally does."
+      ],
+      "discriminator": [
+        36,
+        148,
+        139,
+        239,
+        172,
+        37,
+        58,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "funder",
+          "signer": true
+        },
+        {
+          "name": "bounty"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "funder_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "refund_expired",
+      "docs": [
+        "Buyer only, after the deadline: takes back everything not reserved for a pending take."
+      ],
+      "discriminator": [
+        118,
+        153,
+        164,
+        244,
+        40,
+        128,
+        242,
+        250
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "signer": true,
+          "relations": [
+            "bounty"
+          ]
+        },
+        {
+          "name": "bounty"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "buyer_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "reject_episode",
+      "docs": [
+        "Validator only. Refuses the take and frees its reservation. Nothing is paid."
+      ],
+      "discriminator": [
+        161,
+        43,
+        107,
+        214,
+        150,
+        206,
+        196,
+        180
+      ],
+      "accounts": [
+        {
+          "name": "validator",
+          "signer": true,
+          "relations": [
+            "bounty"
+          ]
+        },
+        {
+          "name": "bounty",
+          "writable": true,
+          "relations": [
+            "episode"
+          ]
+        },
+        {
+          "name": "episode",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  105,
+                  115,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bounty"
+              },
+              {
+                "kind": "account",
+                "path": "episode.episode_id",
+                "account": "Episode"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "score_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "submit_episode",
+      "docs": [
+        "Records a take as pending and reserves its payout. Fails if the vault can't cover every pending take."
+      ],
+      "discriminator": [
+        117,
+        182,
+        49,
+        182,
+        121,
+        193,
+        2,
+        20
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays rent for the episode record and the fee. A sponsor in practice, so contributors need no SOL."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "contributor",
+          "docs": [
+            "The contributor, who signs to own this take."
+          ],
+          "signer": true
+        },
+        {
+          "name": "bounty",
+          "writable": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "episode",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  105,
+                  115,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bounty"
+              },
+              {
+                "kind": "arg",
+                "path": "episode_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "episode_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "manifest_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Bounty",
+      "discriminator": [
+        237,
+        16,
+        105,
+        198,
+        19,
+        69,
+        242,
+        234
+      ]
+    },
+    {
+      "name": "Episode",
+      "discriminator": [
+        41,
+        175,
+        64,
+        71,
+        108,
+        169,
+        208,
+        47
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "EpisodeDecided",
+      "discriminator": [
+        148,
+        169,
+        241,
+        246,
+        12,
+        26,
+        74,
+        127
+      ]
+    },
+    {
+      "name": "EpisodeSubmitted",
+      "discriminator": [
+        83,
+        169,
+        172,
+        61,
+        85,
+        225,
+        180,
+        105
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAmount",
+      "msg": "The amount must be greater than zero."
+    },
+    {
+      "code": 6001,
+      "name": "InvalidCount",
+      "msg": "The task must ask for at least one take."
+    },
+    {
+      "code": 6002,
+      "name": "DeadlineInPast",
+      "msg": "The deadline must be in the future."
+    },
+    {
+      "code": 6003,
+      "name": "InvalidGrace",
+      "msg": "The grace period is out of range."
+    },
+    {
+      "code": 6004,
+      "name": "InvalidScore",
+      "msg": "The score must be between 0 and 10,000 basis points."
+    },
+    {
+      "code": 6005,
+      "name": "BountyExpired",
+      "msg": "This task's deadline has passed."
+    },
+    {
+      "code": 6006,
+      "name": "BountyFull",
+      "msg": "This task already has all the takes it asked for."
+    },
+    {
+      "code": 6007,
+      "name": "Underfunded",
+      "msg": "The task's vault doesn't hold enough to cover another take."
+    },
+    {
+      "code": 6008,
+      "name": "NotPending",
+      "msg": "This take has already been decided."
+    },
+    {
+      "code": 6009,
+      "name": "TooEarly",
+      "msg": "It's too early to do that."
+    },
+    {
+      "code": 6010,
+      "name": "NothingToRefund",
+      "msg": "There is nothing to refund."
+    },
+    {
+      "code": 6011,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow."
+    }
+  ],
+  "types": [
+    {
+      "name": "Bounty",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "validator",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "bounty_id",
+            "docs": [
+              "SHA-256 of the task's public id."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "per_episode",
+            "type": "u64"
+          },
+          {
+            "name": "max_episodes",
+            "type": "u32"
+          },
+          {
+            "name": "pending",
+            "docs": [
+              "Takes submitted and awaiting the validator; each reserves `per_episode` in the vault."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "accepted",
+            "type": "u32"
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "grace_secs",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Episode",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bounty",
+            "type": "pubkey"
+          },
+          {
+            "name": "contributor",
+            "type": "pubkey"
+          },
+          {
+            "name": "episode_id",
+            "docs": [
+              "SHA-256 of the episode's public id."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "manifest_hash",
+            "docs": [
+              "The manifest's own hash: the commitment to the exact bytes the contributor uploaded."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "EpisodeStatus"
+              }
+            }
+          },
+          {
+            "name": "score_bps",
+            "type": "u16"
+          },
+          {
+            "name": "submitted_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpisodeDecided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bounty",
+            "type": "pubkey"
+          },
+          {
+            "name": "episode",
+            "type": "pubkey"
+          },
+          {
+            "name": "accepted",
+            "type": "bool"
+          },
+          {
+            "name": "score_bps",
+            "type": "u16"
+          },
+          {
+            "name": "paid",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpisodeStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Accepted"
+          },
+          {
+            "name": "Rejected"
+          },
+          {
+            "name": "Expired"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpisodeSubmitted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bounty",
+            "type": "pubkey"
+          },
+          {
+            "name": "episode",
+            "type": "pubkey"
+          },
+          {
+            "name": "contributor",
+            "type": "pubkey"
+          },
+          {
+            "name": "manifest_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

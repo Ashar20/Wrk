@@ -4,6 +4,7 @@ import { createHttpServer } from "./http";
 import { Store } from "./store";
 import { Accounts } from "./accounts";
 import { BountyStore } from "./bountyStore";
+import { ensureSeededEscrows } from "./escrowSeed";
 import { ConsoleMailer, ResendMailer } from "./mailer";
 import { SolanaChain } from "./solana/solana-chain";
 import { createWorkerScorer } from "./scorer";
@@ -30,9 +31,16 @@ const mailer = process.env.RESEND_API_KEY && process.env.WRK_MAIL_FROM
   : new ConsoleMailer();
 if (mailer instanceof ConsoleMailer) console.warn("RESEND_API_KEY not set: sign-in codes are printed here instead of emailed.");
 
+const bounties = new BountyStore(dataDir);
+if (chain) {
+  const secret = Uint8Array.from(JSON.parse(readFileSync(process.env.WRK_TREASURY_KEYPAIR!, "utf8")));
+  // In the background: tasks appear to contributors as their vaults finish opening.
+  void ensureSeededEscrows(bounties, chain, secret);
+}
+
 createHttpServer({
   accounts: new Accounts(dataDir, mailer),
-  bounties: new BountyStore(dataDir),
+  bounties,
   store,
   chain,
   score: createWorkerScorer(),

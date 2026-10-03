@@ -5,6 +5,9 @@ import { AuthError, type Accounts } from "./accounts";
 import { BountyInputError, type BountyStore } from "./bountyStore";
 import { dataset, summary, visibleToBuyer } from "./buyer";
 import { decide, historyFor, pendingFor, queueItem, ReviewError } from "./review";
+import { escrowRef } from "./pipeline";
+import type { EscrowRef } from "./solana/chain";
+import bs58 from "bs58";
 import type { EpisodeRecord } from "./store";
 import { redactThresholds } from "@/lib/market/types";
 import type { Manifest } from "@/lib/manifest";
@@ -93,7 +96,7 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-export function createHttpServer(deps: HttpDeps): Server {
+export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?: number) => Promise<number> } {
   const { store, accounts, bounties } = deps;
   // A bounty closes itself once it has paid for as many takes as it asked for.
   const pdeps: PipelineDeps = {
@@ -103,19 +106,51 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (b && store.list().filter((e) => e.bounty_id === bid && e.payment && !e.payment.error).length >= b.min_episodes) bounties.close(bid);
     },
   };
+  const chain = deps.chain;
+  const ISSUED_TTL_MS = 30 * 60_000;
+  const MAX_ISSUED_PER_ADDRESS = 3;
+  /** Wallet users fetch their on-chain transaction before uploading. Anything never uploaded is released again. */
+  const issued = new Map<string, { ref: EscrowRef; bountyId: string; contributor: string; at: number }>();
+  const outstanding = (contributor: string) => [...issued.entries()].filter(([id, i]) => i.contributor === contributor && !store.get(id)).length;
+
+  /** Frees the vault reservation of any transaction issued but never followed by an upload. Returns how many it released. */
+  async function sweepIssued(now = Date.now()) {
+    let n = 0;
+    for (const [episodeId, it] of [...issued]) {
+      if (store.get(episodeId)) { issued.delete(episodeId); continue; } // uploaded: the pipeline owns it now
+      if (now - it.at <= ISSUED_TTL_MS) continue;
+      issued.delete(episodeId); n++;
+      if (chain) await chain.reject({ ref: it.ref, episodeId, scoreBps: 0 }).catch(() => undefined);
+    }
+    return n;
+  }
+  const sweeper = setInterval(() => void sweepIssued(), 5 * 60_000);
+  sweeper.unref();
+
+  const escrowCache = new Map<string, { at: number; info: Awaited<ReturnType<NonNullable<typeof chain>["escrow"]>> }>();
+  async function escrowInfo(ref: EscrowRef) {
+    if (!chain) return null;
+    const k = `${ref.buyer}|${ref.bountyId}`;
+    const hit = escrowCache.get(k);
+    if (hit && Date.now() - hit.at < 8_000) return hit.info;
+    const info = await chain.escrow(ref).catch(() => null);
+    if (info) escrowCache.set(k, { at: Date.now(), info });
+    return info;
+  }
+
   const requireSession = (req: IncomingMessage) => {
     const me = accounts.session(bearer(req));
     if (!me) throw new AuthError("Sign in first.", 401);
     return me;
   };
 
-  return createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://x");
       if (req.method === "OPTIONS") return send(res, 204, {});
 
       if (req.method === "GET" && url.pathname === "/bounties") {
-        return send(res, 200, { bounties: bounties.list().filter((b) => b.status === "open").map(redactThresholds) });
+        return send(res, 200, { bounties: bounties.open(!!deps.chain).map(redactThresholds) });
       }
 
       if (req.method === "POST" && url.pathname === "/auth/email/start") {
@@ -141,6 +176,26 @@ export function createHttpServer(deps: HttpDeps): Server {
         const sig = Buffer.from(String(b.signature ?? ""), "base64");
         const r = accounts.verifyWallet(String(b.address ?? ""), new Uint8Array(sig));
         return send(res, 200, { token: r.token, address: r.address });
+      }
+
+      // --- contributors with their own wallet: the transaction that records a take in its task's escrow ------------------------
+      if (req.method === "POST" && url.pathname === "/anchor/tx") {
+        if (!chain) return send(res, 501, { error: "On-chain payments are off on this validator." });
+        const b = await readJson(req);
+        const bounty = bounties.get(String(b.bounty_id ?? ""));
+        const episodeId = String(b.episode_id ?? "");
+        const hash = String(b.manifest_hash ?? "");
+        const contributor = String(b.contributor ?? "");
+        let validAddress = false;
+        try { validAddress = bs58.decode(contributor).length === 32; } catch { /* not base58 */ }
+        if (!bounty || bounty.status !== "open" || !bounty.escrow?.funded) return send(res, 409, { error: "This task isn't open for takes." });
+        if (!/^ep_[0-9a-f]{8,64}$/.test(episodeId) || !/^0x[0-9a-f]{64}$/.test(hash) || !validAddress) return send(res, 400, { error: "That request isn't valid." });
+        if (store.get(episodeId) || issued.has(episodeId)) return send(res, 409, { error: "That take already has a transaction." });
+        if (outstanding(contributor) >= MAX_ISSUED_PER_ADDRESS) return send(res, 429, { error: "Finish uploading your other takes first." });
+        const ref = escrowRef(bounty)!;
+        const tx = await chain.buildAnchorTx({ ref, episodeId, manifestHash: hash, contributor });
+        issued.set(episodeId, { ref, bountyId: bounty.bounty_id, contributor, at: Date.now() });
+        return send(res, 200, { tx });
       }
 
       // --- verifier: a queue of close calls, a player, and a decision --------------------------------------------------------
@@ -203,11 +258,76 @@ export function createHttpServer(deps: HttpDeps): Server {
           },
           me.address,
         );
-        return send(res, 201, { bounty: redactThresholds(made) });
+        if (!chain) return send(res, 201, { bounty: redactThresholds(made) });
+
+        // The task opens to contributors only once its vault holds the money for every take it asked for.
+        const ref: EscrowRef = { buyer: me.address, bountyId: made.bounty_id };
+        bounties.setEscrow(made.bounty_id, me.address, false);
+        const withEscrow = bounties.get(made.bounty_id)!;
+        try {
+          await chain.faucet(me.address, made.per_episode_usdc * made.min_episodes); // devnet test funds for the buyer to lock up
+          if (me.kind === "email") {
+            const secret = accounts.secretFor(me.email);
+            if (!secret) throw new Error("No payment account key.");
+            await chain.openEscrow({ bounty: withEscrow, ref, buyerSecret: secret });
+            bounties.markFunded(made.bounty_id);
+            return send(res, 201, { bounty: redactThresholds(bounties.get(made.bounty_id)!), escrow: { funded: true } });
+          }
+          const tx = await chain.buildOpenEscrowTx({ bounty: withEscrow, ref });
+          return send(res, 201, { bounty: redactThresholds(withEscrow), escrow: { funded: false, tx } });
+        } catch (err) {
+          bounties.discard(made.bounty_id);
+          return send(res, 502, { error: "Couldn't lock up the funds for this task. Nothing was posted." });
+        }
+      }
+      const bc = /^\/buyer\/bounties\/([\w-]+)\/(confirm|refund)$/.exec(url.pathname);
+      if (req.method === "POST" && bc) {
+        const me = requireSession(req);
+        const bounty = bounties.get(bc[1]);
+        if (!chain || !bounty?.escrow || bounty.escrow.buyer !== me.address) return send(res, 404, { error: "No such task." });
+        const ref = escrowRef(bounty)!;
+        if (bc[2] === "confirm") {
+          if (!bounty.escrow.funded) {
+            const info = await chain.escrow(ref);
+            if (info.exists && info.vaultUsdc + 1e-9 >= bounty.per_episode_usdc * bounty.min_episodes) bounties.markFunded(bounty.bounty_id);
+          }
+          return send(res, 200, { funded: !!bounties.get(bounty.bounty_id)?.escrow?.funded });
+        }
+        try {
+          if (me.kind === "email") {
+            const secret = accounts.secretFor(me.email);
+            if (!secret) return send(res, 400, { error: "No payment account key." });
+            return send(res, 200, { signature: await chain.refund({ ref, buyerSecret: secret }) });
+          }
+          return send(res, 200, { tx: await chain.buildRefundTx(ref) });
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          if (/TooEarly/.test(m)) return send(res, 400, { error: "You can take back what's unspent after the task's deadline." });
+          if (/NothingToRefund/.test(m)) return send(res, 400, { error: "There's nothing left to refund." });
+          throw err;
+        }
       }
       if (req.method === "GET" && url.pathname === "/buyer/summary") {
         const me = requireSession(req);
-        return send(res, 200, summary(store.list(), bounties.list(), me.address));
+        const sum = summary(store.list(), bounties.list(), me.address);
+        const rows = await Promise.all(sum.bounties.map(async (r) => {
+          const b = bounties.get(r.bounty_id)!;
+          const ref = escrowRef(b);
+          const info = ref ? await escrowInfo(ref) : null;
+          const reserved = info ? info.pending * b.per_episode_usdc : 0;
+          return {
+            ...r,
+            escrow: ref
+              ? {
+                  funded: !!b.escrow?.funded,
+                  locked_usdc: info ? Math.round(info.vaultUsdc * 100) / 100 : null,
+                  deadline: b.deadline,
+                  can_refund: !!info && b.escrow!.buyer === me.address && Date.now() / 1000 > info.deadline && info.vaultUsdc - reserved > 1e-9,
+                }
+              : null,
+          };
+        }));
+        return send(res, 200, { ...sum, bounties: rows });
       }
       const bd = /^\/buyer\/bounties\/([\w-]+)\/dataset$/.exec(url.pathname);
       if (req.method === "GET" && bd) {
@@ -310,6 +430,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         const bounty = bounties.get(String(manifest.bounty_id));
         if (!bounty) return send(res, 404, { error: "No such bounty." });
         if (bounty.status !== "open") return send(res, 409, { error: "This task has all the takes it needs." });
+        if (deps.chain && !bounty.escrow?.funded) return send(res, 409, { error: "This task isn't open for takes yet." });
 
         const declared = (manifest.streams ?? {}) as Record<string, { sha256: string }>;
         const streams: StreamBytes[] = [];
@@ -362,4 +483,6 @@ export function createHttpServer(deps: HttpDeps): Server {
       send(res, status, { error: err instanceof Error ? err.message : String(err) });
     }
   });
+  // Exposed so tests can age out issued transactions without waiting half an hour.
+  return Object.assign(server, { sweepIssued });
 }

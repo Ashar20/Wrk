@@ -1,4 +1,4 @@
-import { payOnce, type PipelineDeps } from "./pipeline";
+import { settleAccept, settleReject, type PipelineDeps } from "./pipeline";
 import type { EpisodeRecord } from "./store";
 import type { Bounty } from "@/lib/market/types";
 
@@ -83,7 +83,9 @@ export async function decide(
       review: { ...e.review!, status: approved ? "approved" : "rejected", reviewer: reviewer.address, decided_at: Math.floor(Date.now() / 1000), note: note.slice(0, 280) },
     });
 
-    if (approved && chain && e.contributor) await payOnce(deps, id, e.contributor, bounty.per_episode_usdc);
+    const bps = Math.max(0, Math.min(10_000, Math.round((e.plausibility ?? 0) * 10_000)));
+    if (approved) await settleAccept(deps, id, bounty, bps);
+    else await settleReject(deps, id, bounty, bps);
 
     if (chain) {
       try {

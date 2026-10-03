@@ -4,7 +4,7 @@ import type { Manifest } from "@/lib/manifest";
 import type { EpisodeFingerprint } from "@/lib/validator/duplicate";
 import { validateEpisode, type StreamBytes } from "@/lib/validator/validate";
 import type { Scores } from "@/lib/validator/score";
-import { memoText, type ChainPort } from "./solana/chain";
+import type { ChainPort, EscrowRef } from "./solana/chain";
 import type { EpisodeRecord, Store } from "./store";
 
 export type ScoreFn = (video: Uint8Array, imu: Uint8Array) => Promise<Scores>;
@@ -13,7 +13,7 @@ export interface PipelineDeps {
   store: Store;
   chain: ChainPort | null;
   score: ScoreFn;
-  /** When true an episode is only accepted once its memo is found on chain. */
+  /** When true an episode is only accepted once it is recorded in its task's escrow. */
   requireAnchor: boolean;
   validatorId?: string | null;
   /** Called after a payout lands, so a bounty that has met its quota can close. */
@@ -23,7 +23,14 @@ export interface PipelineDeps {
 /** Takes this close to a bounty's bar are worth a human look when the bounty asks for one. */
 export const REVIEW_BAND = 0.15;
 
-const paying = new Set<string>();
+const settling = new Set<string>();
+
+/** The task's escrow, or null when the validator runs without a chain. */
+export const escrowRef = (b: Bounty): EscrowRef | null => (b.escrow ? { buyer: b.escrow.buyer, bountyId: b.bounty_id } : null);
+
+const scoreBps = (p: number | null | undefined) => Math.max(0, Math.min(10_000, Math.round((p ?? 0) * 10_000)));
+
+const NOT_FOUND = "The submission was not found on Solana, so it cannot be paid.";
 
 /**
  * Score, validate, decide, and (only for accepted + anchored episodes) pay.
@@ -38,7 +45,7 @@ export async function runPipeline(
     manifest: Manifest;
     streams: StreamBytes[];
     anchorSignature: string | null;
-    /** Set for email accounts: the server signs the memo for them. */
+    /** Set for email accounts: the server records the take on-chain for them. */
     custodialSecret?: Uint8Array | null;
   },
 ): Promise<void> {
@@ -85,33 +92,23 @@ export async function runPipeline(
     const decision = evaluateEpisode(bounty, submission);
     const reasons = [...decision.reasons, ...validation.failures];
 
+    // The take must be recorded in the task's escrow before it can be paid. Checked against the chain itself, not
+    // against any signature the client reports, so a take that landed but whose upload was retried still counts.
+    const ref = escrowRef(bounty);
     let anchor = rec.anchor;
-    if (chain && rec.contributor && !anchorSignature && custodialSecret) {
-      anchorSignature = await chain
-        .anchor({ signerSecret: custodialSecret, memo: memoText(bounty.bounty_id, episodeId, rec.manifest_hash) })
-        .catch(() => null);
-    }
-    if (chain && rec.contributor) {
-      if (!anchorSignature) {
-        anchor = undefined;
-      } else {
-        const verified = await chain
-          .verifyMemo(anchorSignature, {
-            signer: rec.contributor,
-            memo: memoText(bounty.bounty_id, episodeId, rec.manifest_hash),
-          })
-          .catch(() => false);
-        anchor = {
-          cluster: chain.cluster,
-          contributor: rec.contributor,
-          signature: anchorSignature,
-          verified,
-          anchored_at: Math.floor(Date.now() / 1000),
-        };
+    if (chain && ref && rec.contributor) {
+      if (!anchorSignature && custodialSecret) {
+        anchorSignature = await chain
+          .anchor({ ref, episodeId, manifestHash: rec.manifest_hash, signerSecret: custodialSecret })
+          .catch(() => null);
       }
-      if (deps.requireAnchor && !anchor?.verified) {
-        reasons.push("The submission was not found on Solana, so it cannot be paid.");
-      }
+      const verified = await chain
+        .verifySubmission({ ref, episodeId, manifestHash: rec.manifest_hash, contributor: rec.contributor })
+        .catch(() => false);
+      anchor = verified || anchorSignature
+        ? { cluster: chain.cluster, contributor: rec.contributor, signature: anchorSignature ?? "", verified, anchored_at: Math.floor(Date.now() / 1000) }
+        : undefined;
+      if (deps.requireAnchor && !verified) reasons.push(NOT_FOUND);
     }
 
     const accepted = decision.accepted && validation.failures.length === 0 && reasons.length === 0;
@@ -147,39 +144,62 @@ export async function runPipeline(
     // The evidence behind the motion score, for the app to draw. Best effort: a missing chart never blocks payment.
     try { store.saveBlob(episodeId, "traces.json", Buffer.from(JSON.stringify(scores.traces))); } catch { /* chart only */ }
 
-    if (accepted && chain && rec.contributor) await payOnce(deps, episodeId, rec.contributor, decision.paid_usdc);
+    // Money moves only through the escrow: accepted takes are paid from the task's vault; everything else on-chain is refused,
+    // which releases the vault's reservation for the next contributor.
+    if (accepted) await settleAccept(deps, episodeId, bounty, scoreBps(plausibility));
+    else if (anchor?.verified) await settleReject(deps, episodeId, bounty, scoreBps(plausibility));
   } catch (err) {
     store.update(episodeId, {
       status: "failed",
       accepted: false,
       scoring_error: err instanceof Error ? err.message : String(err),
     });
+    // A take we could not score must not hold a reservation on the task's money.
+    await settleReject(deps, episodeId, bounty, 0).catch(() => undefined);
   }
 }
 
-export async function payOnce(deps: PipelineDeps, episodeId: string, contributor: string, amountUsdc: number) {
+/** Releases the task's per-take amount to the contributor, once. A failure is recorded on the take, never thrown. */
+export async function settleAccept(deps: PipelineDeps, episodeId: string, bounty: Bounty, bps: number) {
   const { store, chain } = deps;
-  if (!chain || store.get(episodeId)?.payment || paying.has(episodeId)) return;
-  paying.add(episodeId);
+  const rec = store.get(episodeId);
+  const ref = escrowRef(bounty);
+  if (!chain || !rec?.contributor || rec.chain_settled || rec.payment || settling.has(episodeId)) return;
+  const contributor = rec.contributor;
+  const failure = (error: string) =>
+    store.update(episodeId, {
+      payment: { cluster: chain.cluster, contributor, amount_usdc: bounty.per_episode_usdc, signature: "", paid_at: Math.floor(Date.now() / 1000), error },
+    });
+  if (!ref) return void failure("This task has no escrow to pay from.");
+  settling.add(episodeId);
   try {
-    const signature = await chain.pay({ contributor, amountUsdc, episodeId });
+    const signature = await chain.accept({ ref, episodeId, contributor, scoreBps: bps });
     store.update(episodeId, {
-      payment: { cluster: chain.cluster, contributor, amount_usdc: amountUsdc, signature, paid_at: Math.floor(Date.now() / 1000) },
+      chain_settled: "accepted",
+      payment: { cluster: chain.cluster, contributor, amount_usdc: bounty.per_episode_usdc, signature, paid_at: Math.floor(Date.now() / 1000) },
     });
-    deps.onPaid?.(store.get(episodeId)!.bounty_id);
+    deps.onPaid?.(bounty.bounty_id);
   } catch (err) {
-    store.update(episodeId, {
-      payment: {
-        cluster: chain.cluster,
-        contributor,
-        amount_usdc: amountUsdc,
-        signature: "",
-        paid_at: Math.floor(Date.now() / 1000),
-        error: err instanceof Error ? err.message : String(err),
-      },
-    });
+    failure(err instanceof Error ? err.message : String(err));
   } finally {
-    paying.delete(episodeId);
+    settling.delete(episodeId);
+  }
+}
+
+/** Refuses the take in the escrow so its reservation is released. Best effort: a take that never reached the chain is fine. */
+export async function settleReject(deps: PipelineDeps, episodeId: string, bounty: Bounty, bps: number) {
+  const { store, chain } = deps;
+  const rec = store.get(episodeId);
+  const ref = escrowRef(bounty);
+  if (!chain || !ref || !rec || rec.chain_settled || settling.has(episodeId)) return;
+  settling.add(episodeId);
+  try {
+    await chain.reject({ ref, episodeId, scoreBps: bps });
+    store.update(episodeId, { chain_settled: "rejected" });
+  } catch {
+    // Nothing recorded on-chain for this take, or already decided: either way there is no reservation to free.
+  } finally {
+    settling.delete(episodeId);
   }
 }
 

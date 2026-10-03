@@ -1,20 +1,13 @@
+import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import {
-  Connection,
-  Keypair,
-  PublicKey,
-  type ParsedInstruction,
-  type PartiallyDecodedInstruction,
-} from "@solana/web3.js";
-import {
-  createAssociatedTokenAccountIdempotentInstruction,
-  createTransferCheckedInstruction,
-  getAssociatedTokenAddressSync,
-  getMint,
+  createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync, getMint,
 } from "@solana/spl-token";
-import { Transaction, TransactionInstruction, sendAndConfirmTransaction } from "@solana/web3.js";
-import type { ChainPort } from "./chain";
+import type { Bounty } from "@/lib/market/types";
+import type { ChainPort, EscrowInfo, EscrowRef } from "./chain";
+import { EscrowClient } from "./escrow";
 
-const MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+/** Days a take may sit undecided after a task's deadline before its buyer can expire it. */
+const GRACE_SECS = 7 * 24 * 3600;
 
 export interface SolanaChainConfig {
   rpcUrl: string;
@@ -25,46 +18,58 @@ export interface SolanaChainConfig {
 
 export class SolanaChain implements ChainPort {
   readonly cluster: string;
+  readonly validator: string;
+  readonly escrowClient: EscrowClient;
   private readonly conn: Connection;
 
   constructor(private readonly cfg: SolanaChainConfig) {
     this.cluster = cfg.cluster;
     this.conn = new Connection(cfg.rpcUrl, "confirmed");
+    this.escrowClient = new EscrowClient(this.conn, cfg.mint, cfg.treasury);
+    this.validator = this.escrowClient.validatorAddress;
   }
 
-  async verifyMemo(signature: string, expected: { signer: string; memo: string }) {
-    const tx = await this.conn.getParsedTransaction(signature, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
+  private args(bounty: Bounty, ref: EscrowRef) {
+    return async () => ({
+      ref,
+      perEpisodeRaw: await this.escrowClient.toRaw(bounty.per_episode_usdc),
+      maxEpisodes: bounty.min_episodes,
+      deadline: bounty.deadline,
+      graceSecs: GRACE_SECS,
+      // The task's takes are what the vault must cover; the bonus pool and fees are settled off the vault.
+      fundRaw: await this.escrowClient.toRaw(bounty.per_episode_usdc * bounty.min_episodes),
     });
-    if (!tx || tx.meta?.err) return false;
-    // The contributor must have signed; the fee payer may be someone else (the treasury sponsors email accounts).
-    const signed = tx.transaction.message.accountKeys.some((k) => k.signer && k.pubkey.toBase58() === expected.signer);
-    if (!signed) return false;
-    const ixs = tx.transaction.message.instructions as Array<ParsedInstruction | PartiallyDecodedInstruction>;
-    return ixs.some(
-      (ix) =>
-        ix.programId.toBase58() === MEMO_PROGRAM &&
-        "parsed" in ix &&
-        typeof ix.parsed === "string" &&
-        ix.parsed === expected.memo,
-    );
   }
 
-  async anchor({ signerSecret, memo }: { signerSecret: Uint8Array; memo: string }) {
-    const signer = Keypair.fromSecretKey(signerSecret);
-    const tx = new Transaction().add(
-      new TransactionInstruction({
-        keys: [{ pubkey: signer.publicKey, isSigner: true, isWritable: false }],
-        programId: new PublicKey(MEMO_PROGRAM),
-        data: Buffer.from(memo, "utf8"),
-      }),
-    );
-    return sendAndConfirmTransaction(this.conn, tx, [this.cfg.treasury, signer]);
-  }
+  anchor = ({ ref, episodeId, manifestHash, signerSecret }: Parameters<ChainPort["anchor"]>[0]) =>
+    this.escrowClient.submit(ref, episodeId, manifestHash, Keypair.fromSecretKey(signerSecret));
+  buildAnchorTx = ({ ref, episodeId, manifestHash, contributor }: Parameters<ChainPort["buildAnchorTx"]>[0]) =>
+    this.escrowClient.buildSubmitTx(ref, episodeId, manifestHash, contributor);
+  verifySubmission = ({ ref, episodeId, manifestHash, contributor }: Parameters<ChainPort["verifySubmission"]>[0]) =>
+    this.escrowClient.verifySubmission(ref, episodeId, manifestHash, contributor);
+  accept = ({ ref, episodeId, contributor, scoreBps }: Parameters<ChainPort["accept"]>[0]) =>
+    this.escrowClient.accept(ref, episodeId, contributor, scoreBps);
+  reject = ({ ref, episodeId, scoreBps }: Parameters<ChainPort["reject"]>[0]) => this.escrowClient.reject(ref, episodeId, scoreBps);
 
+  async faucet(address: string, amountUsdc: number) {
+    return this.escrowClient.faucet(address, await this.escrowClient.toRaw(amountUsdc));
+  }
+  async openEscrow({ bounty, ref, buyerSecret }: Parameters<ChainPort["openEscrow"]>[0]) {
+    return this.escrowClient.openEscrow(await this.args(bounty, ref)(), Keypair.fromSecretKey(buyerSecret));
+  }
+  async buildOpenEscrowTx({ bounty, ref }: Parameters<ChainPort["buildOpenEscrowTx"]>[0]) {
+    return this.escrowClient.buildOpenEscrowTx(await this.args(bounty, ref)());
+  }
+  async escrow(ref: EscrowRef): Promise<EscrowInfo> {
+    const s = await this.escrowClient.state(ref);
+    return { exists: s.exists, vaultUsdc: await this.escrowClient.toUsd(s.vaultRaw), pending: s.pending, accepted: s.accepted, deadline: s.deadline };
+  }
+  refund = ({ ref, buyerSecret }: Parameters<ChainPort["refund"]>[0]) => this.escrowClient.refund(ref, Keypair.fromSecretKey(buyerSecret));
+  buildRefundTx = (ref: EscrowRef) => this.escrowClient.buildRefundTx(ref);
+
+  /** A direct transfer from the treasury: reviewer fees, which are not part of any task's vault. */
   async pay({ contributor, amountUsdc }: { contributor: string; amountUsdc: number; episodeId: string }) {
-    const mint = new PublicKey(this.cfg.mint);
+    const mint = this.escrowClient.mint;
     const owner = new PublicKey(contributor);
     const { decimals } = await getMint(this.conn, mint);
     const amount = BigInt(Math.round(amountUsdc * 10 ** decimals));

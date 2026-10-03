@@ -64,6 +64,8 @@ export interface Bounty {
   owner?: string;
   /** "borderline": takes near the bar wait for a human reviewer before they are paid or refused. */
   review_policy?: "none" | "borderline";
+  /** Where its money is locked. Absent when the validator runs without a chain (local development). */
+  escrow?: { buyer: string; funded: boolean };
 }
 
 /** What a contributor submits after their episode is scored on-device. */

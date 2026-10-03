@@ -35,6 +35,8 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(
 export class BountyStore {
   private custom: Bounty[] = [];
   private closed = new Set<string>();
+  /** Escrow state per task id: who opened it and whether its vault is funded. */
+  private escrows: Record<string, { buyer: string; funded: boolean }> = {};
   private readonly file: string;
 
   constructor(dir: string) {
@@ -44,11 +46,38 @@ export class BountyStore {
       const j = JSON.parse(readFileSync(this.file, "utf8"));
       this.custom = j.custom ?? [];
       this.closed = new Set(j.closed ?? []);
+      this.escrows = j.escrows ?? {};
     }
   }
 
   list(): Bounty[] {
-    return [...BOUNTIES, ...this.custom].map((b) => (this.closed.has(b.bounty_id) ? { ...b, status: "closed" as const } : b));
+    return [...BOUNTIES, ...this.custom].map((b) => ({
+      ...b,
+      ...(this.closed.has(b.bounty_id) ? { status: "closed" as const } : {}),
+      ...(this.escrows[b.bounty_id] ? { escrow: this.escrows[b.bounty_id] } : {}),
+    }));
+  }
+
+  /** Tasks contributors can see. With a chain, only once their vault is funded: nobody records takes against an empty promise. */
+  open(chainOn: boolean): Bounty[] {
+    return this.list().filter((b) => b.status === "open" && (!chainOn || b.escrow?.funded));
+  }
+
+  setEscrow(id: string, buyer: string, funded: boolean) {
+    this.escrows[id] = { buyer, funded };
+    this.flush();
+  }
+
+  markFunded(id: string) {
+    const e = this.escrows[id];
+    if (e && !e.funded) { e.funded = true; this.flush(); }
+  }
+
+  /** Drops a task that was posted but couldn't be set up. Seeded tasks are never removed. */
+  discard(id: string) {
+    this.custom = this.custom.filter((b) => b.bounty_id !== id);
+    delete this.escrows[id];
+    this.flush();
   }
 
   get(id: string) {
@@ -97,7 +126,7 @@ export class BountyStore {
 
   private flush() {
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ custom: this.custom, closed: [...this.closed] }));
+    writeFileSync(tmp, JSON.stringify({ custom: this.custom, closed: [...this.closed], escrows: this.escrows }));
     renameSync(tmp, this.file);
   }
 }

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
     "@mediapipe/hands": "file:stubs/mediapipe-hands",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.99.0",

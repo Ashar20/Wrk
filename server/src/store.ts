@@ -35,6 +35,8 @@ export interface EpisodeRecord {
   anchor?: EpisodeAnchor;
   payment?: EpisodePayment;
   review?: ReviewRecord;
+  /** What has happened to the take in the escrow: accepted (paid) or rejected (reservation released). */
+  chain_settled?: "accepted" | "rejected";
   received_at: number;
 }
 

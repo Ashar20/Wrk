@@ -10,7 +10,7 @@ import { Accounts } from "../src/accounts";
 import { BountyStore, budgetFor } from "../src/bountyStore";
 import { createHttpServer } from "../src/http";
 import type { Mailer } from "../src/mailer";
-import { memoText, type ChainPort } from "../src/solana/chain";
+import { FakeChain } from "./fakeChain";
 import { Store } from "../src/store";
 import { budgetBreakdown } from "@/lib/market/types";
 import { sealManifest, sha256Hex } from "@/lib/manifest";
@@ -23,15 +23,6 @@ const scores = (percent: number | null, sig = "a"): Scores => ({
   plausibility: { percent } as Scores["plausibility"], traces: [], signature: [sig], framesAnalyzed: 10, elapsedMs: 1,
 });
 
-class FakeChain implements ChainPort {
-  cluster = "devnet";
-  payouts: Array<{ contributor: string; amountUsdc: number; episodeId: string }> = [];
-  memos = new Set<string>();
-  async verifyMemo(sig: string, e: { signer: string; memo: string }) { return this.memos.has(`${sig}|${e.signer}|${e.memo}`); }
-  async anchor() { return "anchor"; }
-  async pay(a: { contributor: string; amountUsdc: number; episodeId: string }) { this.payouts.push(a); return `pay-${this.payouts.length}`; }
-}
-
 class CaptureMailer implements Mailer {
   codes: Record<string, string> = {};
   async sendCode(to: string, code: string) { this.codes[to] = code; }
@@ -39,13 +30,15 @@ class CaptureMailer implements Mailer {
 
 describe("verifier, buyer and wallet roles", () => {
   let base = ""; let server: ReturnType<typeof createHttpServer>;
-  let chain: FakeChain; let mailer: CaptureMailer; let accounts: Accounts; let plausibility: number | null; let n = 0;
+  let chain: FakeChain; let bountyStore: BountyStore; let mailer: CaptureMailer; let accounts: Accounts; let plausibility: number | null; let n = 0;
 
   beforeEach(async () => {
     chain = new FakeChain(); mailer = new CaptureMailer(); plausibility = 62; n = 0;
     accounts = new Accounts(mkdtempSync(join(tmpdir(), "wrk-acc-")), mailer);
+    bountyStore = new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-")));
+    await chain.seed(bountyStore);
     server = createHttpServer({
-      store: new Store(mkdtempSync(join(tmpdir(), "wrk-r-"))), accounts, bounties: new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-"))),
+      store: new Store(mkdtempSync(join(tmpdir(), "wrk-r-"))), accounts, bounties: bountyStore,
       chain, score: async () => scores(plausibility, randomBytes(8).toString("hex")), requireAnchor: true,
     });
     await new Promise<void>((r) => server.listen(0, r));
@@ -81,7 +74,8 @@ describe("verifier, buyer and wallet roles", () => {
         imu: { sha256: await sha256Hex(imu), bytes: imu.length, content_type: "application/octet-stream" },
       },
     });
-    chain.memos.add(`s-${id}|${contributor}|${memoText(bountyId, id, manifest.manifest_hash)}`);
+    // a wallet user has already recorded the take in the task's escrow, whoever opened it
+    chain.walletSubmit({ buyer: bountyStore.get(bountyId)!.escrow!.buyer, bountyId }, id, manifest.manifest_hash, contributor);
     const form = new FormData();
     form.set("manifest", JSON.stringify(manifest)); form.set("rgb", new Blob([rgb])); form.set("imu", new Blob([imu])); form.set("anchor_signature", `s-${id}`);
     const res = await fetch(`${base}/episodes`, { method: "POST", body: form });
@@ -263,6 +257,7 @@ describe("verifier, buyer and wallet roles", () => {
     plausibility = 90;
     const first = await submit(made.bounty_id); await settled(first.id);
     expect((await api("/bounties")).body.bounties.some((b: any) => b.bounty_id === made.bounty_id)).toBe(false);
-    expect((await submit(made.bounty_id)).status).toBe(409);
+    // a full task also refuses new takes on-chain: the vault has no slot left to record one
+    await expect(submit(made.bounty_id)).rejects.toThrow("BountyFull");
   });
 });
