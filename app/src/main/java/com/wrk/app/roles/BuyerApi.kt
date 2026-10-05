@@ -21,7 +21,12 @@ data class BuyerBounty(
     val avgPlausibility: Double?,
     /** Takes per score band: 0–20, 20–40, 40–60, 60–80, 80–100 %. */
     val histogram: List<Int>,
+    /** Null when the validator isn't running a chain, so nothing is locked anywhere. */
+    val escrow: EscrowStatus? = null,
 )
+
+/** What the task's on-chain vault holds. [lockedUsd] is null if the chain couldn't be read just now. */
+data class EscrowStatus(val funded: Boolean, val lockedUsd: Double?, val deadline: Long, val canRefund: Boolean)
 
 data class BuyerSummary(val totalSpendUsd: Double, val bounties: List<BuyerBounty>)
 
@@ -37,6 +42,9 @@ fun parseBuyerSummary(o: JSONObject): BuyerSummary {
             accepted = b.optInt("accepted"), rejected = b.optInt("rejected"), inReview = b.optInt("in_review"), scoring = b.optInt("scoring"),
             spendUsd = b.optDouble("spend_usdc"), avgPlausibility = if (b.isNull("avg_plausibility")) null else b.optDouble("avg_plausibility"),
             histogram = List(5) { i -> h?.optInt(i) ?: 0 },
+            escrow = b.optJSONObject("escrow")?.let { e ->
+                EscrowStatus(e.optBoolean("funded"), if (e.isNull("locked_usdc")) null else e.optDouble("locked_usdc"), e.optLong("deadline"), e.optBoolean("can_refund"))
+            },
         )
     })
 }
@@ -55,15 +63,37 @@ fun budgetFor(perTakeUsd: Double, takes: Int): Budget {
     return Budget(total, takesUsd, utility, validators, cents(total - takesUsd - utility - validators))
 }
 
+data class CreatedTask(val id: String, val funded: Boolean, val tx: String?)
+data class RefundResult(val tx: String?)
+
 class BuyerApi(private val api: JsonApi) {
     suspend fun summary(): BuyerSummary = parseBuyerSummary(api.get("/buyer/summary"))
 
-    suspend fun create(title: String, spec: String, perTakeUsd: Double, takes: Int, humanReview: Boolean): String =
-        api.post(
+    /**
+     * Posts a task. Where the buyer's key is held by Wrk the funds are locked right away ([CreatedTask.tx] is null);
+     * a buyer with their own wallet gets a transaction to sign, and the task opens once it lands.
+     */
+    suspend fun create(title: String, spec: String, perTakeUsd: Double, takes: Int, humanReview: Boolean): CreatedTask {
+        val r = api.post(
             "/buyer/bounties",
             JSONObject().put("title", title).put("task_spec", spec).put("per_episode_usdc", perTakeUsd).put("min_episodes", takes)
                 .put("review_policy", if (humanReview) "borderline" else "none"),
-        ).getJSONObject("bounty").getString("bounty_id")
+        )
+        val e = r.optJSONObject("escrow")
+        return CreatedTask(r.getJSONObject("bounty").getString("bounty_id"), funded = e?.optBoolean("funded", true) ?: true, tx = e?.optString("tx")?.takeIf { it.isNotBlank() })
+    }
+
+    /** After the wallet sent the funding transaction: has the vault received the money yet? */
+    suspend fun confirm(id: String): Boolean = api.post("/buyer/bounties/$id/confirm", JSONObject()).optBoolean("funded")
+
+    /** A fresh funding transaction for a task that was posted but never finished funding. */
+    suspend fun fundTx(id: String): String = api.post("/buyer/bounties/$id/fund-tx", JSONObject()).getString("tx")
+
+    /** After the deadline: take back what's unspent. Wallet buyers get a transaction to sign; others are done. */
+    suspend fun refund(id: String): RefundResult {
+        val r = api.post("/buyer/bounties/$id/refund", JSONObject())
+        return RefundResult(r.optString("tx").takeIf { it.isNotBlank() })
+    }
 
     /** The accepted takes' provenance and scores as JSON text, ready to share. */
     suspend fun dataset(id: String): String = api.get("/buyer/bounties/$id/dataset").toString(2)

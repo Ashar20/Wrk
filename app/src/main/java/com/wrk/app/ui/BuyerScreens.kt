@@ -57,8 +57,23 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
+/**
+ * Funds a task whose money isn't locked yet: a wallet buyer signs the transaction and Wrk waits for it to land.
+ * Returns a message to show, or null once the task is open.
+ */
+suspend fun fundTask(api: BuyerApi, id: String, tx: String, onSignAndSend: suspend (String) -> String?): String? {
+    onSignAndSend(tx)?.let { return it }
+    repeat(8) {
+        if (api.confirm(id)) return null
+        delay(2_000)
+    }
+    return "Funding was sent but hasn't shown up yet. Check back in a moment."
+}
+
 @Composable
-fun BuyerDashboardScreen(api: BuyerApi, onOpen: (BuyerBounty) -> Unit, onNew: () -> Unit, modifier: Modifier = Modifier) {
+fun BuyerDashboardScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, onOpen: (BuyerBounty) -> Unit, onNew: () -> Unit, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    var fundingProblem by remember { mutableStateOf<String?>(null) }
     val state by produceState<Result<BuyerSummary>?>(null) {
         while (true) { value = runCatching { api.summary() }; delay(6_000) }
     }
@@ -75,12 +90,19 @@ fun BuyerDashboardScreen(api: BuyerApi, onOpen: (BuyerBounty) -> Unit, onNew: ()
         if (r?.isFailure == true) item {
             FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) { Text((r.exceptionOrNull() as? ApiException)?.message ?: "Couldn't load your tasks.", style = WrkType.body, color = WrkColors.butterInk) }
         }
-        items(r?.getOrNull()?.bounties.orEmpty(), key = { it.id }) { b -> BuyerBountyCard(b) { onOpen(b) } }
+        fundingProblem?.let { item { FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) { Text(it, style = WrkType.body, color = WrkColors.butterInk) } } }
+        items(r?.getOrNull()?.bounties.orEmpty(), key = { it.id }) { b ->
+            BuyerBountyCard(b, onFinishFunding = {
+                scope.launch {
+                    fundingProblem = try { fundTask(api, b.id, api.fundTx(b.id), onSignAndSend) } catch (e: ApiException) { e.message }
+                }
+            }) { onOpen(b) }
+        }
     }
 }
 
 @Composable
-private fun BuyerBountyCard(b: BuyerBounty, onClick: () -> Unit) {
+private fun BuyerBountyCard(b: BuyerBounty, onFinishFunding: () -> Unit, onClick: () -> Unit) {
     PaperCard(Modifier.fillMaxWidth(), onClick = onClick) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -88,13 +110,24 @@ private fun BuyerBountyCard(b: BuyerBounty, onClick: () -> Unit) {
                 if (!b.open) Tag("Full")
             }
             Tag(if (b.ownerIsYou) "Posted by you" else "Wrk demo task")
+            b.escrow?.let { e ->
+                if (e.funded) Tag("Locked in escrow${e.lockedUsd?.let { String.format(Locale.US, " · $%.2f", it) } ?: ""}")
+                else if (b.ownerIsYou) {
+                    FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Waiting for funding. Nobody can record takes until the money is locked.", style = WrkType.body, color = WrkColors.butterInk)
+                            com.wrk.app.design.ButterButton("Finish funding", onFinishFunding, Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            }
             Meter("${b.accepted} of ${b.minEpisodes} takes", (b.accepted.toDouble() / b.minEpisodes).coerceIn(0.0, 1.0), "${b.rejected} rejected · ${b.inReview} in review · ${b.scoring} checking")
         }
     }
 }
 
 @Composable
-fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onSignAndSend: suspend (String) -> String?, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     // Starts from what was tapped, then keeps itself fresh as takes arrive.
     val b by produceState(first) {
@@ -124,6 +157,26 @@ fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onBack: () -> Unit, mod
                 ScoreBars(b.histogram)
                 Tag(b.avgPlausibility?.let { "Average motion match ${Math.round(it * 100)}%" } ?: "No scored takes yet")
             }
+        }
+        b.escrow?.let { e ->
+            PaperCard(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Tag("Locked in escrow")
+                    Figure(e.lockedUsd ?: 0.0, WrkType.figureLead, knockDownCents = true)
+                    Tag(if (e.funded) "Held by the task's on-chain vault. Only accepted takes can be paid from it." else "Waiting for funding")
+                    if (e.deadline > 0) Tag("Unspent funds can be taken back after " + java.text.DateFormat.getDateInstance().format(java.util.Date(e.deadline * 1000)))
+                }
+            }
+            if (e.canRefund) InkButton(if (busy) "Working…" else "Take back unspent funds", {
+                if (busy) return@InkButton
+                scope.launch {
+                    busy = true; problem = null
+                    try {
+                        val r = api.refund(b.id)
+                        problem = if (r.tx != null) onSignAndSend(r.tx) ?: "Done. The unspent funds are back in your payment account." else "Done. The unspent funds are back in your payment account."
+                    } catch (ex: ApiException) { problem = ex.message } finally { busy = false }
+                }
+            }, Modifier.fillMaxWidth(), enabled = !busy)
         }
         PaperCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -176,7 +229,7 @@ private fun ScoreBars(h: List<Int>) {
 }
 
 @Composable
-fun NewBountyScreen(api: BuyerApi, onCreated: () -> Unit, modifier: Modifier = Modifier) {
+fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, onCreated: () -> Unit, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
     var spec by remember { mutableStateOf("") }
@@ -217,7 +270,7 @@ fun NewBountyScreen(api: BuyerApi, onCreated: () -> Unit, modifier: Modifier = M
                     Tag("Budget")
                     Figure(budget.totalUsd, WrkType.figureLead, knockDownCents = true)
                     Tag(String.format(Locale.US, "Takes $%.2f · bonus pool $%.2f · reviewers $%.2f · Wrk $%.2f", budget.takesUsd, budget.utilityUsd, budget.validatorsUsd, budget.treasuryUsd))
-                    Tag("Funding is simulated in this demo; nothing is charged to you.")
+                    Tag("The money for every take is locked in an on-chain escrow before your task opens. On devnet we add free test funds for you.")
                 }
             }
         }
@@ -227,8 +280,14 @@ fun NewBountyScreen(api: BuyerApi, onCreated: () -> Unit, modifier: Modifier = M
             if (busy || perTake == null || count == null) return@InkButton
             scope.launch {
                 busy = true; problem = null
-                try { api.create(title.trim(), spec.trim(), perTake, count, review); onCreated() }
-                catch (e: ApiException) { problem = e.message } finally { busy = false }
+                try {
+                    val t = api.create(title.trim(), spec.trim(), perTake, count, review)
+                    if (!t.funded && t.tx != null) {
+                        problem = fundTask(api, t.id, t.tx, onSignAndSend)
+                        // Posted either way: if funding didn't finish, it's on the dashboard with a "Finish funding" button.
+                        if (problem == null) onCreated()
+                    } else onCreated()
+                } catch (e: ApiException) { problem = e.message } finally { busy = false }
             }
         }, Modifier.fillMaxWidth(), enabled = valid && !busy)
     }

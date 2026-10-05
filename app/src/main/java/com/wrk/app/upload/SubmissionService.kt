@@ -9,7 +9,6 @@ import com.wrk.app.account.Account
 import com.wrk.app.episode.EpisodeState
 import com.wrk.app.episode.SelfReport
 import com.wrk.app.episode.buildEpisode
-import com.wrk.app.wallet.MemoTx
 import com.wrk.app.wallet.SendResult
 
 /** The foreground half of submitting: seal the take, get the payout approved if needed, hand over to the queue. */
@@ -35,26 +34,30 @@ class SubmissionService(private val context: Context, private val c: WrkContaine
         return built.episodeId
     }
 
-    /** Wallet users: ask their wallet to approve the payout record, then start the upload. Returns an error message, or null. */
+    /**
+     * Wallet users: record the take in its task's escrow. Wrk builds the transaction and pays its fees; the wallet only
+     * signs. Then the upload starts. Returns a message to show the person, or null on success.
+     */
     suspend fun approvePayout(id: String, account: Account.Wallet, sender: ActivityResultSender): String? {
         val manifest = c.episodes.manifest(id) ?: return "This take is no longer on the phone."
         val st = c.episodes.state(id) ?: return "This take is no longer on the phone."
         if (st.anchorSignature != null) { UploadWorker.enqueue(context, id); return null }
         val hash = (manifest.map["manifest_hash"] as com.wrk.app.episode.JsonStr).value
-        val memo = MemoTx.text(st.bountyId, id, hash)
-        val tx = try {
-            MemoTx.build(account.address, c.rpc.latestBlockhash(), memo)
-        } catch (e: Exception) {
-            return "Couldn't reach the network. Check your connection and try again."
-        }
-        return when (val r = c.wallet.signAndSend(sender, tx)) {
-            is SendResult.Sent -> {
-                c.episodes.update(id) { it.copy(anchorSignature = r.signature, error = null, waiting = false) }
-                UploadWorker.enqueue(context, id)
-                null
+        return when (val r = c.api.anchorTx(st.bountyId, id, hash, account.address)) {
+            AnchorTxResult.NotNeeded -> {
+                c.episodes.update(id) { it.copy(anchorSignature = "not-required", error = null, waiting = false) }
+                UploadWorker.enqueue(context, id); null
             }
-            SendResult.NoWalletInstalled -> "Your wallet app isn't available. Open it once, then try again."
-            is SendResult.Failed -> r.message
+            is AnchorTxResult.Refused -> r.message
+            is AnchorTxResult.Retry -> r.message
+            is AnchorTxResult.Ready -> when (val sent = c.wallet.signAndSend(sender, r.tx)) {
+                is SendResult.Sent -> {
+                    c.episodes.update(id) { it.copy(anchorSignature = sent.signature, error = null, waiting = false) }
+                    UploadWorker.enqueue(context, id); null
+                }
+                SendResult.NoWalletInstalled -> "Your wallet app isn't available. Open it once, then try again."
+                is SendResult.Failed -> sent.message
+            }
         }
     }
 

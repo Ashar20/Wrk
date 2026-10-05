@@ -24,4 +24,13 @@ Setup: validator running with devnet configured, phone connected, `adb reverse t
    ```
 9. **Buyer.** Sign in as a Buyer, post a task, then open a task to see accepted, rejected and in-review counts, the score spread and spend. Share the dataset manifest once a take is accepted.
 
+## The escrow
+
+10. **Locked, then released.** Start the validator; it opens and funds each demo task's escrow on devnet. Show one:
+    ```sh
+    cd server && npx tsx --env-file=.env scripts/inspect-escrow.ts bounty_004
+    ```
+    `locked: 60`. Record and submit a take as a contributor, then run it again with the episode id: the take is `accepted` on-chain and `locked` has dropped by exactly the per-take pay. The contributor's balance rose by the same amount.
+11. **A rejected take pays nothing.** Submit the replay fixture: it's refused, the vault is untouched, and its reservation is released.
+
 Fallback if recording isn't possible: run the two fixture commands above and show the results.

@@ -116,6 +116,15 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val start = remember { if (c.accounts.load() == null || c.accounts.role == null) "login" else homeFor(c.accounts.role!!) }
     val activeRole = role ?: Role.Contributor
 
+    /** Hands a transaction the validator built to the buyer's wallet. Returns a message if it didn't go through. */
+    val signAndSend: suspend (String) -> String? = { tx ->
+        when (val r = c.wallet.signAndSend(sender, android.util.Base64.decode(tx, android.util.Base64.DEFAULT))) {
+            is com.wrk.app.wallet.SendResult.Sent -> null
+            com.wrk.app.wallet.SendResult.NoWalletInstalled -> "Your wallet app isn't available. Open it once, then try again."
+            is com.wrk.app.wallet.SendResult.Failed -> r.message
+        }
+    }
+
     fun goHome(r: Role = activeRole) { nav.navigate(homeFor(r)) { popUpTo(nav.graph.id) { inclusive = true } } }
 
     /** Verifier and Buyer need the validator to know who they are. Wallet users prove it by signing a message once. */
@@ -215,12 +224,12 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
             composable("rhistory") { ReviewHistoryScreen(reviewApi) }
 
             // ---- buyer -----------------------------------------------------------------------------------------------
-            composable("dash") { BuyerDashboardScreen(buyerApi, onOpen = { selectedBuyer = it; nav.navigate("bountyd") }, onNew = { nav.navigate("newtask") }) }
+            composable("dash") { BuyerDashboardScreen(buyerApi, signAndSend, onOpen = { selectedBuyer = it; nav.navigate("bountyd") }, onNew = { nav.navigate("newtask") }) }
             composable("bountyd") {
                 val b = selectedBuyer
-                if (b == null) LaunchedEffect(Unit) { goHome() } else BuyerBountyScreen(b, buyerApi, onBack = { nav.popBackStack() })
+                if (b == null) LaunchedEffect(Unit) { goHome() } else BuyerBountyScreen(b, buyerApi, signAndSend, onBack = { nav.popBackStack() })
             }
-            composable("newtask") { NewBountyScreen(buyerApi, onCreated = { goHome(Role.Buyer) }) }
+            composable("newtask") { NewBountyScreen(buyerApi, signAndSend, onCreated = { goHome(Role.Buyer) }) }
 
             // ---- shared ----------------------------------------------------------------------------------------------
             composable("roles") {

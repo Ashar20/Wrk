@@ -41,12 +41,26 @@ sealed interface UploadResult {
     data object SignInExpired : UploadResult
 }
 
+/** The server's answer to "give me the transaction that records this take on-chain". */
+sealed interface AnchorTxResult {
+    class Ready(val tx: ByteArray) : AnchorTxResult
+    /** This validator isn't running payments, so there is nothing to sign. */
+    data object NotNeeded : AnchorTxResult
+    /** The server won't issue one, with a reason the person can read. */
+    data class Refused(val message: String) : AnchorTxResult
+    /** Couldn't reach the server. Try again. */
+    data class Retry(val message: String) : AnchorTxResult
+}
+
 interface EpisodeApi {
     suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?): UploadResult
     /** Null when the validator can't be reached right now. */
     suspend fun fetch(episodeId: String): EpisodeView?
     /** The aligned flow/gyro traces as JSON text, or null when unavailable. */
     suspend fun traces(episodeId: String): String? = null
+    /** The transaction a wallet signs to record a take in its task's escrow. Fees and rent are covered by Wrk. */
+    suspend fun anchorTx(bountyId: String, episodeId: String, manifestHash: String, contributor: String): AnchorTxResult = AnchorTxResult.NotNeeded
+
     /** Sends the saved live-prediction strip. Returns true once the server has it. */
     suspend fun uploadPredictions(episodeId: String, json: String): Boolean = true
 }
@@ -92,6 +106,24 @@ class HttpEpisodeApi(
             }
         } catch (e: Exception) { null }
     }
+
+    override suspend fun anchorTx(bountyId: String, episodeId: String, manifestHash: String, contributor: String): AnchorTxResult =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject().put("bounty_id", bountyId).put("episode_id", episodeId).put("manifest_hash", manifestHash).put("contributor", contributor)
+            try {
+                client.newCall(Request.Builder().url("$baseUrl/anchor/tx").post(body.toString().toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
+                    val json = runCatching { JSONObject(r.body?.string().orEmpty()) }.getOrDefault(JSONObject())
+                    when {
+                        r.isSuccessful -> AnchorTxResult.Ready(android.util.Base64.decode(json.getString("tx"), android.util.Base64.DEFAULT))
+                        r.code == 501 -> AnchorTxResult.NotNeeded
+                        r.code in 400..499 -> AnchorTxResult.Refused(json.optString("error").ifBlank { "This take can't be recorded right now." })
+                        else -> AnchorTxResult.Retry("Wrk had a problem. Try again in a moment.")
+                    }
+                }
+            } catch (e: IOException) {
+                AnchorTxResult.Retry("Couldn't reach Wrk. Check your connection and try again.")
+            }
+        }
 
     override suspend fun traces(episodeId: String): String? = withContext(Dispatchers.IO) {
         try {

@@ -10,7 +10,6 @@ import com.wrk.app.upload.HttpEpisodeApi
 import com.wrk.app.upload.SubmissionProcessor
 import com.wrk.app.episode.RawCapture
 import com.wrk.app.data.Bounty
-import com.wrk.app.wallet.SolanaRpc
 import com.wrk.app.wallet.WalletManager
 import java.io.File
 
@@ -29,7 +28,6 @@ class WrkContainer private constructor(private val app: Context) {
     val episodes = EpisodeStore(File(app.filesDir, "episodes"))
     val api: EpisodeApi = HttpEpisodeApi(BuildConfig.API_BASE)
     val wallet = WalletManager(accounts)
-    val rpc = SolanaRpc(BuildConfig.SOLANA_RPC)
 
     /** Survives navigation between capture and review; deliberately not persisted (the video already is). */
     @Volatile var pending: PendingCapture? = null
