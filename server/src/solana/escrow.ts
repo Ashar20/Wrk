@@ -1,4 +1,5 @@
-import { AnchorProvider, BN, Program, Wallet, type Idl } from "@coral-xyz/anchor";
+import anchorPkg from "@coral-xyz/anchor";
+import type { Idl } from "@coral-xyz/anchor";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   createMintToInstruction,
@@ -11,6 +12,10 @@ import {
 } from "@solana/web3.js";
 import { createHash } from "node:crypto";
 import idl from "./wrk_escrow.idl.json";
+
+// Anchor ships CommonJS; Node's ESM loader can only see its default export, so take the pieces from there.
+const { AnchorProvider, BN, Program, Wallet } = anchorPkg;
+type BN = InstanceType<typeof BN>;
 
 /** Identifies a task's escrow: who opened it and the task's public id. Everything else is derived. */
 export interface EscrowRef {
@@ -48,7 +53,7 @@ const hexBytes = (h: string) => Array.from(Buffer.from(h.replace(/^0x/, ""), "he
  * take, and it also sponsors fees and rent so contributors and buyers need no SOL of their own.
  */
 export class EscrowClient {
-  readonly program: Program;
+  readonly program: InstanceType<typeof Program>;
   readonly programId: PublicKey;
   readonly mint: PublicKey;
 

@@ -166,10 +166,13 @@ describe("money moves only through the task's escrow", () => {
     expect((await upload(id, wallet(), { submitOnChain: false })).status).toBe(409); // not open for takes
 
     expect((await api(`/buyer/bounties/${id}/confirm`, { token: session.token, json: {} })).body.funded).toBe(false); // nothing on-chain yet
+    const retry = await api(`/buyer/bounties/${id}/fund-tx`, { token: session.token, json: {} }); // walked away, came back
+    expect(retry.status).toBe(200); expect(typeof retry.body.tx).toBe("string");
     chain.walletOpen(bounties.get(id)!, { buyer: address, bountyId: id }); // the wallet sends the transaction
     expect((await api(`/buyer/bounties/${id}/confirm`, { token: session.token, json: {} })).body.funded).toBe(true);
     expect((await api("/bounties")).body.bounties.map((b: any) => b.bounty_id)).toContain(id);
     expect((await api(`/buyer/bounties/${id}/confirm`, { token: buyer.token, json: {} })).status).toBe(404); // not their task
+    expect((await api(`/buyer/bounties/${id}/fund-tx`, { token: session.token, json: {} })).status).toBe(409); // already funded
   });
 
   it("cleans up and says so if the funds can't be locked", async () => {

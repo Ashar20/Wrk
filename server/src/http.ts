@@ -280,12 +280,18 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           return send(res, 502, { error: "Couldn't lock up the funds for this task. Nothing was posted." });
         }
       }
-      const bc = /^\/buyer\/bounties\/([\w-]+)\/(confirm|refund)$/.exec(url.pathname);
+      const bc = /^\/buyer\/bounties\/([\w-]+)\/(confirm|refund|fund-tx)$/.exec(url.pathname);
       if (req.method === "POST" && bc) {
         const me = requireSession(req);
         const bounty = bounties.get(bc[1]);
         if (!chain || !bounty?.escrow || bounty.escrow.buyer !== me.address) return send(res, 404, { error: "No such task." });
         const ref = escrowRef(bounty)!;
+        if (bc[2] === "fund-tx") {
+          // A wallet buyer who walked away mid-funding gets a fresh transaction to finish with.
+          if (bounty.escrow.funded) return send(res, 409, { error: "This task is already funded." });
+          await chain.faucet(me.address, bounty.per_episode_usdc * bounty.min_episodes);
+          return send(res, 200, { tx: await chain.buildOpenEscrowTx({ bounty, ref }) });
+        }
         if (bc[2] === "confirm") {
           if (!bounty.escrow.funded) {
             const info = await chain.escrow(ref);
