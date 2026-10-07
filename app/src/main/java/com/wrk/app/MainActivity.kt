@@ -150,12 +150,14 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                         current = null,
                         auth = auth,
                         onConnectWallet = {
-                            when (val r = c.wallet.connect(sender)) {
-                                is WalletResult.Connected -> {
-                                    val (a, err) = sessionFor(chosen, Account.Wallet(r.address))
-                                    if (err != null) WalletResult.Failed(err) else WalletResult.Connected(r.address, a?.sessionToken)
-                                }
-                                else -> r
+                            if (!chosen.needsSession) c.wallet.connect(sender)
+                            else when (val r = c.wallet.connectAndSign(sender) { address -> auth.walletChallenge(address) }) {
+                                // Verifier and Buyer: one approval in the wallet both connects and proves ownership.
+                                is com.wrk.app.wallet.SignInResult.Ok -> try {
+                                    WalletResult.Connected(r.address, auth.walletVerify(r.address, r.signature))
+                                } catch (e: AuthException) { WalletResult.Failed(e.message ?: "Couldn't sign you in.") }
+                                com.wrk.app.wallet.SignInResult.NoWalletInstalled -> WalletResult.NoWalletInstalled
+                                is com.wrk.app.wallet.SignInResult.Failed -> WalletResult.Failed(r.message)
                             }
                         },
                         onSignedIn = {

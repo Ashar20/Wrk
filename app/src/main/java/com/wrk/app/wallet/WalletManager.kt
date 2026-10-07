@@ -20,6 +20,12 @@ sealed interface SignResult {
     data class Failed(val message: String) : SignResult
 }
 
+sealed interface SignInResult {
+    class Ok(val address: String, val signature: ByteArray) : SignInResult
+    data object NoWalletInstalled : SignInResult
+    data class Failed(val message: String) : SignInResult
+}
+
 sealed interface SendResult {
     data class Sent(val signature: String) : SendResult
     data object NoWalletInstalled : SendResult
@@ -64,6 +70,35 @@ class WalletManager(private val store: AccountStore) {
         }
         }
 
+    /**
+     * Connects and proves ownership in one wallet approval: the wallet is asked once, and [challenge] is fetched from the
+     * validator (for the address it just revealed) while the wallet session is still open.
+     */
+    suspend fun connectAndSign(sender: ActivityResultSender, challenge: suspend (address: String) -> String): SignInResult =
+        adapter.transact(sender) { authResult ->
+            val key = authResult.accounts.first().publicKey
+            val address = Base58.encodeToString(key)
+            runCatching {
+                val message = challenge(address)
+                val signed = signMessagesDetached(arrayOf(message.toByteArray(Charsets.UTF_8)), arrayOf(key))
+                address to checkNotNull(signed.messages.firstOrNull()?.signatures?.firstOrNull()) { "no signature returned" }
+            }
+        }.let { r ->
+            when (r) {
+                is TransactionResult.Success -> {
+                    store.walletAuthToken = r.authResult.authToken
+                    val inner = r.payload
+                    when {
+                        inner == null -> SignInResult.Failed("Your wallet didn't answer. Try again.")
+                        inner.isSuccess -> inner.getOrThrow().let { (a, sig) -> SignInResult.Ok(a, sig) }
+                        else -> SignInResult.Failed(friendly(inner.exceptionOrNull() ?: IllegalStateException("sign-in failed")))
+                    }
+                }
+                is TransactionResult.NoWalletFound -> SignInResult.NoWalletInstalled
+                is TransactionResult.Failure -> SignInResult.Failed(friendly(r.e))
+            }
+        }
+
     /** Asks the wallet to sign a short message, proving the person holds the address. Null if they decline. */
     suspend fun signMessage(sender: ActivityResultSender, message: String): SignResult =
         adapter.transact(sender) { authResult ->
@@ -85,8 +120,15 @@ class WalletManager(private val store: AccountStore) {
         store.walletAuthToken = null
     }
 
-    private fun friendly(e: Throwable): String =
-        if (e.message?.contains("declin", ignoreCase = true) == true || e.message?.contains("cancel", ignoreCase = true) == true)
+    private fun friendly(e: Throwable): String {
+        // The person sees a short message; the real cause goes to the log so a failure can be diagnosed.
+        android.util.Log.e("WrkWallet", "wallet request failed", e)
+        return friendlyMessage(e)
+    }
+
+    private fun friendlyMessage(e: Throwable): String =
+        if (e is com.wrk.app.account.AuthException) (e.message ?: "Couldn't reach Wrk.")
+        else if (e.message?.contains("declin", ignoreCase = true) == true || e.message?.contains("cancel", ignoreCase = true) == true)
             "You didn't approve it. Try again when you're ready."
         else "Couldn't reach your payment account. Try again."
 }

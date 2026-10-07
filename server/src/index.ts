@@ -9,7 +9,7 @@ import { ConsoleMailer, ResendMailer } from "./mailer";
 import { SolanaChain } from "./solana/solana-chain";
 import { createWorkerScorer } from "./scorer";
 
-const port = Number(process.env.PORT ?? 8787);
+const port = Number(process.env.PORT ?? 8850);
 const store = new Store(process.env.WRK_DATA_DIR ?? "data");
 
 let chain: SolanaChain | null = null;
@@ -46,4 +46,10 @@ createHttpServer({
   score: createWorkerScorer(),
   requireAnchor: process.env.WRK_REQUIRE_ANCHOR !== "0",
   validatorId: chain ? null : null,
-}).listen(port, () => console.log(`Wrk validator listening on :${port}`));
+})
+  .on("error", (e: NodeJS.ErrnoException) => {
+    if (e.code === "EADDRINUSE") console.error(`Port ${port} is already used by another program. Stop it, or start the validator on another port with PORT=<number> (and point the app at it).`);
+    else console.error(e);
+    process.exit(1);
+  })
+  .listen(port, () => console.log(`Wrk validator listening on :${port}`));

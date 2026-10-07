@@ -316,7 +316,7 @@ class CaptureController { suspend fun record(maxMs: Long, onTick: (Long) -> Unit
 - Modify: `app/build.gradle.kts` (release `signingConfigs` read from `~/.gradle/gradle.properties`)
 
 - [ ] **Step 1:** Fund devnet treasury + create test mint (`spl-token create-token`, `create-account`, `mint`); put values in `server/.env`.
-- [ ] **Step 2:** Run `server` (`npx tsx src/index.ts`), `adb reverse tcp:8787 tcp:8787`, record one real capture on the device → expect `accepted`, a payout signature, visible on devnet explorer.
+- [ ] **Step 2:** Run `server` (`npx tsx src/index.ts`), `adb reverse tcp:8850 tcp:8850`, record one real capture on the device → expect `accepted`, a payout signature, visible on devnet explorer.
 - [ ] **Step 3:** Seed the replay fixture through `curl` multipart → expect `rejected` with a plausibility reason and no payout.
 - [ ] **Step 4:** `./gradlew :app:assembleRelease` with a generated keystore → `apksigner verify --print-certs`. Check `aapt dump badging` shows label `Wrk`.
 - [ ] **Step 5:** Naming audit: `rg -i 'worldmod|world mod' --glob '!docs/**' --glob '!product-spec.md' .` must return nothing; check a sample memo and manifest by eye.

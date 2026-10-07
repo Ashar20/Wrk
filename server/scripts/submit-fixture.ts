@@ -1,6 +1,6 @@
 /**
  * Submits a recorded capture to a running validator, the way the app does. Used for demos and smoke tests.
- *   npx tsx scripts/submit-fixture.ts <fixtureDir> [--imu <otherFixtureDir>] [--bounty bounty_004] [--url http://127.0.0.1:8787]
+ *   npx tsx scripts/submit-fixture.ts <fixtureDir> [--imu <otherFixtureDir>] [--bounty bounty_004] [--url http://127.0.0.1:8850]
  * `--imu` pairs this video with another take's motion, which is what a screen replay looks like.
  */
 import { readFileSync } from "node:fs";
@@ -13,7 +13,7 @@ const args = process.argv.slice(2);
 const flag = (n: string, d?: string) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
 const dir = args[0];
 if (!dir) throw new Error("usage: submit-fixture.ts <fixtureDir> [--imu <dir>] [--bounty id] [--url u] [--contributor addr] [--anchor sig] [--token session]");
-const url = flag("--url", "http://127.0.0.1:8787")!;
+const url = flag("--url", "http://127.0.0.1:8850")!;
 const bountyId = flag("--bounty", "bounty_004")!;
 const contributor = flag("--contributor", "9xQeWvG816bUx9EPfEZEoPqdNaE4gqCNTNqmbFnfZoxM")!;
 

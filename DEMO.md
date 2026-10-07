@@ -1,6 +1,6 @@
 # Demo script
 
-Setup: validator running with devnet configured, phone connected, `adb reverse tcp:8787 tcp:8787`.
+Setup: validator running with devnet configured, phone connected, `adb reverse tcp:8850 tcp:8850`.
 
 1. **Browse.** Open Wrk. Three tasks with what they pay. No prompts.
 2. **Pick "Cup pick-and-place".** Show the reward, length and sensors.

@@ -47,7 +47,7 @@ Wrk never asks for or stores a seed phrase. Email accounts are custodial: Wrk ho
 cd server
 npm install
 npm run setup:devnet      # creates a devnet treasury + test reward token, writes .env
-npm start                 # listens on :8787
+npm start                 # listens on :8850
 ```
 
 If the devnet faucet rate-limits you, fund the treasury address it prints at https://faucet.solana.com and run the setup again.
@@ -57,7 +57,7 @@ Without `.env`, takes are still scored but never anchored or paid. Sign-in codes
 ### App
 
 ```sh
-adb reverse tcp:8787 tcp:8787       # debug builds talk to the validator on your laptop
+adb reverse tcp:8850 tcp:8850       # debug builds talk to the validator on your laptop
 ./gradlew :app:installDebug
 ```
 
