@@ -37,6 +37,9 @@ export interface EpisodeRecord {
   review?: ReviewRecord;
   /** What has happened to the take in the escrow: accepted (paid) or rejected (reservation released). */
   chain_settled?: "accepted" | "rejected";
+  /** The head movements this take was asked for (only when its task has a live check). */
+  liveness_prompts?: Array<{ at_ms: number; axis: "yaw" | "pitch" }>;
+  liveness?: { required: boolean; passed: boolean; matched: number; total: number };
   /** The attested phone that made this take, when it came from one. */
   device_id?: string | null;
   /** "attested" only when the take is signed by a verified device's hardware key. Never self-declared. */

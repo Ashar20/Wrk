@@ -18,6 +18,7 @@ import {
   type PlausibilityReport,
 } from "@/lib/analysis/correlate";
 import { estimateFlow, toGrayscale } from "@/lib/analysis/flow";
+import { checkLiveness, type LivenessReport, type Prompt } from "@/lib/analysis/liveness";
 import {
   framingScore,
   type FrameHands,
@@ -50,7 +51,14 @@ const EDGE = 192;
  */
 const DETECT_EVERY = 3;
 
+export interface ScoreOptions {
+  /** The head movements the contributor was asked for, when the task has a live check. */
+  prompts?: Prompt[];
+}
+
 export interface Scores {
+  /** Whether the asked-for movements appeared in both the picture and the gyroscope. Present only with prompts. */
+  liveness?: LivenessReport;
   framing: FramingReport;
   plausibility: PlausibilityReport;
   /** The two traces at the best lag, for §6.3's overlay. Empty when unpaired. */
@@ -186,6 +194,7 @@ async function flowSeries(frames: SampledFrame[]): Promise<FlowSample[]> {
 export async function scoreEpisode(
   video: Uint8Array,
   imuBytes: Uint8Array,
+  options: ScoreOptions = {},
 ): Promise<Scores> {
   const started = Date.now();
   const directory = await mkdtemp(join(tmpdir(), "wrk-"));
@@ -230,6 +239,7 @@ export async function scoreEpisode(
 
     return {
       framing: framingScore(hands),
+      liveness: options.prompts?.length ? checkLiveness(flow, imu, options.prompts) : undefined,
       plausibility: report,
       // At the lag the correlator actually chose, so the picture matches the
       // number rather than showing an unaligned pair beside a good score.

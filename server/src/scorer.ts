@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import type { ScoreFn } from "./pipeline";
-import type { Scores } from "@/lib/validator/score";
+import type { ScoreOptions, Scores } from "@/lib/validator/score";
 
 /**
  * Scoring decodes video and solves optical flow on the CPU for tens of seconds. Running it on the main
@@ -10,7 +10,7 @@ import type { Scores } from "@/lib/validator/score";
 export function createWorkerScorer(): ScoreFn {
   let tail: Promise<unknown> = Promise.resolve();
 
-  const run = (video: Uint8Array, imu: Uint8Array) =>
+  const run = (video: Uint8Array, imu: Uint8Array, options?: ScoreOptions) =>
     new Promise<Scores>((resolve, reject) => {
       const worker = new Worker(new URL("./scoreWorker.ts", import.meta.url), { execArgv: process.execArgv });
       worker.once("message", (m: { ok: boolean; scores?: Scores; error?: string }) => {
@@ -19,11 +19,11 @@ export function createWorkerScorer(): ScoreFn {
       });
       worker.once("error", reject);
       worker.once("exit", (code) => code !== 0 && reject(new Error(`Scoring worker exited with code ${code}`)));
-      worker.postMessage({ video, imu });
+      worker.postMessage({ video, imu, options });
     });
 
-  return (video, imu) => {
-    const next = tail.then(() => run(video, imu), () => run(video, imu));
+  return (video, imu, options) => {
+    const next = tail.then(() => run(video, imu, options), () => run(video, imu, options));
     tail = next.catch(() => undefined);
     return next;
   };

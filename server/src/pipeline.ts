@@ -3,11 +3,11 @@ import type { Bounty, EpisodeSubmission } from "@/lib/market/types";
 import type { Manifest } from "@/lib/manifest";
 import type { EpisodeFingerprint } from "@/lib/validator/duplicate";
 import { validateEpisode, type StreamBytes } from "@/lib/validator/validate";
-import type { Scores } from "@/lib/validator/score";
+import type { ScoreOptions, Scores } from "@/lib/validator/score";
 import type { ChainPort, EscrowRef } from "./solana/chain";
 import type { EpisodeRecord, Store } from "./store";
 
-export type ScoreFn = (video: Uint8Array, imu: Uint8Array) => Promise<Scores>;
+export type ScoreFn = (video: Uint8Array, imu: Uint8Array, options?: ScoreOptions) => Promise<Scores>;
 
 export interface PipelineDeps {
   store: Store;
@@ -32,6 +32,7 @@ export const escrowRef = (b: Bounty): EscrowRef | null => (b.escrow ? { buyer: b
 
 const scoreBps = (p: number | null | undefined) => Math.max(0, Math.min(10_000, Math.round((p ?? 0) * 10_000)));
 
+const LIVENESS_FAILED = "The live head-movement check didn't match the video, so it can't be paid.";
 const NOT_FOUND = "The submission was not found on Solana, so it cannot be paid.";
 
 /**
@@ -59,8 +60,8 @@ export async function runPipeline(
     const imu = streams.find((s) => s.kind === "imu");
     if (!video) throw new Error("No video stream was uploaded, so nothing can be scored.");
 
-    const scores = await deps.score(video.bytes, imu?.bytes ?? new Uint8Array());
     const rec = store.get(episodeId)!;
+    const scores = await deps.score(video.bytes, imu?.bytes ?? new Uint8Array(), { prompts: rec.liveness_prompts });
 
     const prior: EpisodeFingerprint[] = store
       .list()
@@ -94,6 +95,16 @@ export async function runPipeline(
     const decision = evaluateEpisode(bounty, submission);
     const reasons = [...decision.reasons, ...validation.failures];
 
+    // A live check, when the task asks for one, is part of being accepted: the asked-for movements must show up in the
+    // picture and the gyroscope. Not a judgement call, so it never goes to a reviewer.
+    let liveness: EpisodeRecord["liveness"];
+    if (bounty.liveness === "require") {
+      const asked = rec.liveness_prompts?.length ?? 0;
+      const passed = !!scores.liveness?.passed;
+      liveness = { required: true, passed, matched: scores.liveness?.matched ?? 0, total: asked };
+      if (!passed) reasons.push(LIVENESS_FAILED);
+    }
+
     // The take must be recorded in the task's escrow before it can be paid. Checked against the chain itself, not
     // against any signature the client reports, so a take that landed but whose upload was retried still counts.
     const ref = escrowRef(bounty);
@@ -117,7 +128,7 @@ export async function runPipeline(
 
     // Close calls go to a person before anyone is paid or refused. Integrity and anchoring problems never do:
     // those are not judgement calls.
-    const hardProblem = validation.failures.length > 0 || reasons.some((r) => /not found on Solana/.test(r));
+    const hardProblem = validation.failures.length > 0 || reasons.some((r) => /not found on Solana|live head-movement/.test(r));
     const onlyMotionMiss = !decision.accepted && decision.reasons.length === 1 && /Motion match/.test(decision.reasons[0]);
     const needsReview =
       bounty.review_policy === "borderline" && !hardProblem && plausibility !== null &&
@@ -125,7 +136,7 @@ export async function runPipeline(
     if (needsReview) {
       store.update(episodeId, {
         status: "in_review", accepted: false, reasons: [], plausibility, framing: submission.framing,
-        hands_visible_percent: scores.framing.visibilityPercent, signature: scores.signature, validation, anchor,
+        hands_visible_percent: scores.framing.visibilityPercent, signature: scores.signature, validation, anchor, liveness,
         review: { status: "pending", auto_accepted: decision.accepted },
       });
       try { store.saveBlob(episodeId, "traces.json", Buffer.from(JSON.stringify(scores.traces))); } catch { /* chart only */ }
@@ -142,6 +153,7 @@ export async function runPipeline(
       signature: scores.signature,
       validation,
       anchor,
+      liveness,
     });
     // The evidence behind the motion score, for the app to draw. Best effort: a missing chart never blocks payment.
     try { store.saveBlob(episodeId, "traces.json", Buffer.from(JSON.stringify(scores.traces))); } catch { /* chart only */ }

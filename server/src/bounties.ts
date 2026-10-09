@@ -22,6 +22,7 @@ const base = {
   status: "open" as const,
   owner: "wrk",
   review_policy: "none" as const,
+  liveness: "off" as const,
 };
 
 export const BOUNTIES: Bounty[] = [
@@ -66,5 +67,18 @@ export const BOUNTIES: Bounty[] = [
     validator_fee_usdc: 7.5,
     treasury_fee_usdc: 7.5,
     review_policy: "borderline",
+  },
+  {
+    ...base,
+    bounty_id: "bounty_008",
+    title: "Cup pick-and-place, live check",
+    task_spec: "Pick up a cup, move it, and place it down. While you work the app will ask you to look side to side and nod, a few seconds apart. This proves the recording is live, so it pays more.",
+    task: "cup_pick_and_place",
+    per_episode_usdc: 1.2,
+    budget_usdc: 200,
+    utility_pool_usdc: 60,
+    validator_fee_usdc: 10,
+    treasury_fee_usdc: 10,
+    liveness: "require",
   },
 ];

@@ -6,6 +6,8 @@ import { BountyInputError, type BountyStore } from "./bountyStore";
 import { dataset, summary, visibleToBuyer } from "./buyer";
 import { decide, historyFor, pendingFor, queueItem, ReviewError } from "./review";
 import { escrowRef } from "./pipeline";
+import { LivenessChallenges, LivenessError } from "./liveness";
+import type { Prompt } from "@/lib/analysis/liveness";
 import { DeviceError, type Devices } from "./attestation/devices";
 import type { EscrowRef } from "./solana/chain";
 import bs58 from "bs58";
@@ -71,6 +73,7 @@ export function publicEpisode(e: EpisodeRecord) {
     validator_score: e.validation?.plausibility_score ?? null,
     checks: checks ? { manifest_intact: checks.manifest_intact, streams_intact: checks.streams_intact, duplicate_of: checks.duplicate_of } : null,
     trust_level: e.trust_level ?? "heuristic",
+    liveness: e.liveness ?? null,
     manifest_hash: e.manifest_hash,
     anchor: e.anchor ?? null,
     payment: e.payment && !e.payment.error ? e.payment : null,
@@ -79,7 +82,7 @@ export function publicEpisode(e: EpisodeRecord) {
   };
 }
 
-export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean };
+export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean; liveness?: LivenessChallenges };
 
 const bearer = (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
 
@@ -102,6 +105,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
   const { store, accounts, bounties } = deps;
   // A bounty closes itself once it has paid for as many takes as it asked for.
   const devices = deps.devices;
+  const liveness = deps.liveness ?? new LivenessChallenges();
   const pdeps: PipelineDeps = {
     ...deps,
     onDecided: (id, accepted) => devices?.decided(store.get(id)?.device_id, accepted),
@@ -193,6 +197,9 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         });
       }
 
+      // --- live check: a random head-movement sequence for one take -----------------------------------------------------------
+      if (req.method === "GET" && url.pathname === "/liveness/challenge") return send(res, 200, liveness.issue());
+
       // --- wallet sign-in: sign a one-time challenge to prove you hold the address ---------------------------------------------
       if (req.method === "POST" && url.pathname === "/auth/wallet/challenge") {
         return send(res, 200, accounts.challenge(String((await readJson(req)).address ?? "")));
@@ -282,6 +289,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
             per_episode_usdc: Number(b.per_episode_usdc), min_episodes: Number(b.min_episodes),
             review_policy: b.review_policy === "borderline" ? "borderline" : "none",
             min_trust_level: b.min_trust_level === "attested" ? "attested" : "heuristic",
+            liveness: b.liveness === "require" ? "require" : "off",
           },
           me.address,
         );
@@ -507,6 +515,14 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           }
         }
 
+        // A task with a live check needs the sequence the validator issued, shown in order, and spends it.
+        let prompts: Prompt[] | undefined;
+        if (bounty.liveness === "require") {
+          const claim = (manifest.liveness ?? {}) as { nonce?: unknown; prompts?: unknown };
+          try { prompts = liveness.consume(claim.nonce, claim.prompts); }
+          catch (e) { return send(res, 400, { error: e instanceof LivenessError ? e.message : "The live check couldn't be read." }); }
+        }
+
         for (const s of streams) store.saveBlob(episodeId, s.kind, s.bytes);
         const rec = store.put({
           episode_id: episodeId,
@@ -523,6 +539,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           received_at: Math.floor(Date.now() / 1000),
           device_id: deviceId,
           trust_level: trust,
+          liveness_prompts: prompts,
         });
         devices?.note(deviceId, contributorId);
 
