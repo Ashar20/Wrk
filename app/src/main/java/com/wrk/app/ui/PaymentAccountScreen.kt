@@ -97,7 +97,7 @@ fun PaymentAccountScreen(
                 }
             }
             if (onSwitchRole != null) PaperButton("Switch role", onSwitchRole, Modifier.fillMaxWidth())
-            PaperButton("Sign out", onSignOut, Modifier.fillMaxWidth())
+            PaperButton("Switch account", onSignOut, Modifier.fillMaxWidth())
             return@Column
         }
 

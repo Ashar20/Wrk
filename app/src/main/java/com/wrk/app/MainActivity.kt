@@ -6,7 +6,19 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.wrk.app.design.WrkType
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
@@ -25,6 +37,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 import com.wrk.app.account.Account
+import com.wrk.app.account.label
 import com.wrk.app.account.AuthApi
 import com.wrk.app.account.AuthException
 import com.wrk.app.account.Role
@@ -149,6 +162,17 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     }
 
     Column(Modifier.fillMaxSize().background(WrkColors.bone).statusBarsPadding()) {
+        // Who you are right now, on every screen: tap it to switch account or role.
+        val who = account
+        if (who != null && route != null && route !in setOf("login", "account", "roles", "capture/{id}")) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                Box(
+                    Modifier.clip(RoundedCornerShape(50)).background(WrkColors.paper)
+                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { nav.navigate("account") }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) { Text("${who.label} · ${activeRole.label}", style = WrkType.label.copy(fontSize = 12.sp), color = WrkColors.muted, maxLines = 1) }
+            }
+        }
         NavHost(nav, startDestination = start, modifier = Modifier.weight(1f)) {
             composable("login") {
                 var picked by remember { mutableStateOf<Role?>(null) }
