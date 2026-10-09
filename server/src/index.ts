@@ -51,7 +51,8 @@ createHttpServer({
   accounts: new Accounts(dataDir, mailer),
   bounties,
   devices,
-  requireDevice: process.env.WRK_REQUIRE_DEVICE === "1",
+  // Earning needs a verified phone by default (once Wrk's signing certificate is configured). WRK_REQUIRE_DEVICE=0 turns it off.
+  requireDevice: process.env.WRK_REQUIRE_DEVICE ? process.env.WRK_REQUIRE_DEVICE === "1" : allowedAppCerts.length > 0,
   store,
   chain,
   score: createWorkerScorer(),

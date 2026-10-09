@@ -82,7 +82,7 @@ export function publicEpisode(e: EpisodeRecord) {
   };
 }
 
-export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean; liveness?: LivenessChallenges };
+export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean; liveness?: LivenessChallenges; maxRegistrationsPerHour?: number };
 
 const bearer = (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
 
@@ -115,6 +115,8 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
     },
   };
   const chain = deps.chain;
+  const registrations = new Map<string, number[]>();
+  const MAX_REGISTRATIONS_PER_HOUR = deps.maxRegistrationsPerHour ?? 5;
   const ISSUED_TTL_MS = 30 * 60_000;
   const MAX_ISSUED_PER_ADDRESS = 3;
   /** Wallet users fetch their on-chain transaction before uploading. Anything never uploaded is released again. */
@@ -182,6 +184,11 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
       }
       if (req.method === "POST" && url.pathname === "/device/register") {
         if (!devices) return send(res, 501, { error: "Device checks are off on this validator." });
+        // Registering is cheap to script, so one source can only register a handful of phones an hour.
+        const from = req.socket.remoteAddress ?? "?";
+        const recent = (registrations.get(from) ?? []).filter((t) => Date.now() - t < 3_600_000);
+        if (recent.length >= MAX_REGISTRATIONS_PER_HOUR) return send(res, 429, { error: "Too many phones verified from here. Try again later." });
+        registrations.set(from, [...recent, Date.now()]);
         const b = await readJson(req, 40_000);
         const chain = Array.isArray(b.chain) ? b.chain.map(String).slice(0, 8) : [];
         let r;
@@ -513,12 +520,10 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           return send(res, 403, { error: "This needs a verified phone. Update Wrk and open it once to verify yours." });
         }
         if (devices) {
+          const link = devices.linkCheck(deviceId, contributorId);
+          if (!link.ok) return send(res, 403, { error: link.reason });
           const a = devices.allowance(deviceId, contributorId);
-          if (a.used >= a.cap) {
-            return send(res, 403, { error: a.farming
-              ? `Too many accounts have been used on this phone, so it's limited to ${a.cap} takes a day. Come back tomorrow.`
-              : `You've reached today's limit of ${a.cap} takes. Come back tomorrow.` });
-          }
+          if (a.used >= a.cap) return send(res, 403, { error: `You've reached today's limit of ${a.cap} takes. It grows as your takes are accepted. Come back tomorrow.` });
         }
 
         // A task with a live check needs the sequence the validator issued, shown in order, and spends it.

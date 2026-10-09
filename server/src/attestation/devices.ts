@@ -15,8 +15,11 @@ export interface DeviceRecord {
   registered_at: number;
   accepted: number;
   rejected: number;
-  /** Every payment account that has submitted from this device. Many accounts on one phone is the farming signal. */
+  /** Every payment account that has submitted from this device. */
   accounts: string[];
+  /** The one payment account this phone earns for. Set by its first take; moves only after the cooldown. */
+  owner?: string;
+  bound_at?: number;
   /** Takes accepted into the queue per UTC day. */
   days: Record<string, number>;
 }
@@ -28,6 +31,8 @@ export class DeviceError extends Error {
 }
 
 export interface DevicesOptions {
+  /** How long a phone stays linked to its payment account (and an account to its phone) before it may move. */
+  rebindAfterMs?: number;
   packageName?: string;
   allowedAppCerts?: string[];
   /** Override Google's roots (tests). */
@@ -37,11 +42,11 @@ export interface DevicesOptions {
 
 /** Takes per day for a payment account on a phone we can't vouch for. */
 export const UNATTESTED_DAILY_CAP = 5;
-/** A verified phone starts here and earns more as its takes get accepted. */
-const ATTESTED_BASE_CAP = 20;
+/** A new verified phone starts small and earns room only through accepted takes. */
+const ATTESTED_BASE_CAP = 5;
 const ATTESTED_MAX_CAP = 100;
-/** More accounts than this on one phone is treated as farming. */
-export const MAX_ACCOUNTS_PER_DEVICE = 3;
+/** Phones and accounts are linked one to one; a link can move after this long (a genuine phone upgrade). */
+export const DEFAULT_REBIND_MS = 30 * 24 * 3600_000;
 
 const CHALLENGE_TTL_MS = 5 * 60_000;
 const MAX_CHALLENGES = 5_000;
@@ -57,6 +62,8 @@ export class Devices {
   private devices: Record<string, DeviceRecord> = {};
   /** Per-address takes per day, for submitters without a verified device. */
   private addressDays: Record<string, Record<string, number>> = {};
+  /** Which verified phone each payment account earns on. */
+  private accountDevice: Record<string, { device_id: string; bound_at: number }> = {};
   private challenges = new Map<string, number>();
   private readonly file: string;
   private readonly now: () => number;
@@ -70,6 +77,7 @@ export class Devices {
       const j = JSON.parse(readFileSync(this.file, "utf8"));
       this.devices = j.devices ?? {};
       this.addressDays = j.addressDays ?? {};
+      this.accountDevice = j.accountDevice ?? {};
     }
   }
 
@@ -131,23 +139,53 @@ export class Devices {
     const day = dayOf(this.now());
     const d = this.get(deviceId);
     if (d?.fully_attested) {
-      const farming = new Set([...d.accounts, address]).size > MAX_ACCOUNTS_PER_DEVICE;
       // Standing: accepted takes earn room, refused ones cost more than an accepted one earns, and it never drops below the
       // unverified allowance (a verified phone with a bad run is still better than nothing) or above the ceiling.
       const earned = ATTESTED_BASE_CAP + d.accepted * 2 - d.rejected * 3;
-      const cap = farming ? UNATTESTED_DAILY_CAP : Math.max(UNATTESTED_DAILY_CAP, Math.min(ATTESTED_MAX_CAP, earned));
-      return { cap, used: d.days[day] ?? 0, farming };
+      const cap = Math.max(UNATTESTED_DAILY_CAP, Math.min(ATTESTED_MAX_CAP, earned));
+      return { cap, used: d.days[day] ?? 0 };
     }
-    return { cap: UNATTESTED_DAILY_CAP, used: this.addressDays[address]?.[day] ?? 0, farming: false };
+    return { cap: UNATTESTED_DAILY_CAP, used: this.addressDays[address]?.[day] ?? 0 };
   }
 
-  /** Counts a take that was let in. */
+  /**
+   * Phones and payment accounts are linked one to one. Without this, one person could multiply their allowance with a few
+   * accounts on one phone, or one account across a few phones. The link is made by a phone's first take and can move only
+   * after the cooldown, which is long enough to stop spam and short enough for a real phone upgrade.
+   */
+  linkCheck(deviceId: string | null | undefined, address: string): { ok: true } | { ok: false; reason: string } {
+    const d = this.get(deviceId);
+    if (!d?.fully_attested) return { ok: true }; // unverified submitters have no link (and can be refused outright elsewhere)
+    const now = this.now();
+    const wait = this.opts.rebindAfterMs ?? DEFAULT_REBIND_MS;
+    const movable = (at?: number) => at !== undefined && now - at >= wait;
+
+    if (d.owner && d.owner !== address && !movable(d.bound_at)) {
+      return { ok: false, reason: "This phone is already linked to another payment account." };
+    }
+    const link = this.accountDevice[address];
+    if (link && link.device_id !== d.id && !movable(link.bound_at)) {
+      const until = new Date(link.bound_at + wait).toISOString().slice(0, 10);
+      return { ok: false, reason: `This payment account is linked to another phone. It can move to a new phone after ${until}.` };
+    }
+    return { ok: true };
+  }
+
+  /** Counts a take that was let in, and makes (or keeps) the phone-account link. */
   note(deviceId: string | null | undefined, address: string) {
     const day = dayOf(this.now());
     const d = this.get(deviceId);
     if (d?.fully_attested) {
       d.days[day] = (d.days[day] ?? 0) + 1;
       if (!d.accounts.includes(address)) d.accounts.push(address);
+      if (d.owner !== address) {
+        // The old owner of this phone and the old phone of this account are released: links stay one to one.
+        const prior = this.accountDevice[address];
+        if (prior && prior.device_id !== d.id && this.devices[prior.device_id]?.owner === address) delete this.devices[prior.device_id].owner;
+        if (d.owner && this.accountDevice[d.owner]?.device_id === d.id) delete this.accountDevice[d.owner];
+        d.owner = address; d.bound_at = this.now();
+        this.accountDevice[address] = { device_id: d.id, bound_at: d.bound_at };
+      }
       for (const k of Object.keys(d.days)) if (k < day && Object.keys(d.days).length > 14) delete d.days[k];
     } else {
       const m = (this.addressDays[address] ??= {});
@@ -167,7 +205,7 @@ export class Devices {
 
   private flush() {
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ devices: this.devices, addressDays: this.addressDays }));
+    writeFileSync(tmp, JSON.stringify({ devices: this.devices, addressDays: this.addressDays, accountDevice: this.accountDevice }));
     renameSync(tmp, this.file);
   }
 }
