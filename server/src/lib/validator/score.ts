@@ -54,6 +54,8 @@ const DETECT_EVERY = 3;
 export interface ScoreOptions {
   /** The head movements the contributor was asked for, when the task has a live check. */
   prompts?: Prompt[];
+  /** Only decode, measure motion and run the live check. Skips hand detection and fingerprints: for a standalone live check. */
+  livenessOnly?: boolean;
 }
 
 export interface Scores {
@@ -218,10 +220,24 @@ export async function scoreEpisode(
       // plausibility will report insufficient_frames and say so.
     }
 
+    const flow = await flowSeries(frames);
+
+    if (options.livenessOnly) {
+      const none = { verdict: "no_frames" as const, percent: null, framesAnalyzed: 0, framesWithHands: 0, framesInGuide: 0, visibilityPercent: null };
+      return {
+        framing: none,
+        liveness: checkLiveness(flow, imu, options.prompts ?? []),
+        plausibility: plausibility(flow, imu),
+        traces: [],
+        signature: [],
+        framesAnalyzed: frames.length,
+        elapsedMs: Date.now() - started,
+      };
+    }
+
     const hands: FrameHands[] = await detectHandsServerSide(
       frames.filter((_, index) => index % DETECT_EVERY === 0),
     );
-    const flow = await flowSeries(frames);
 
     const signature = episodeSignature(
       frames

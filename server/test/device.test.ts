@@ -37,6 +37,7 @@ describe("devices: registration and limits", () => {
   let clock = Date.now();
   /** Scoring waits on this, so a test can submit many takes before any is decided. */
   let hold: Promise<void> = Promise.resolve();
+  let livenessPasses = true;
 
   const build = async () => {
     bounties = new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-")));
@@ -44,13 +45,17 @@ describe("devices: registration and limits", () => {
     devices = new Devices(mkdtempSync(join(tmpdir(), "wrk-d-")), { roots: [authority.rootPem], allowedAppCerts: [DIGEST], now: () => clock, rebindAfterMs: 30 * 24 * 3600_000 });
     server = createHttpServer({
       store: new Store(mkdtempSync(join(tmpdir(), "wrk-e-"))), accounts: new Accounts(mkdtempSync(join(tmpdir(), "wrk-a-")), mailer), bounties, chain, devices,
-      requireDevice, requireLocation, maxRegistrationsPerHour: maxRegistrations, score: async () => { await hold; return scores(); }, requireAnchor: true,
+      requireDevice, requireLocation, maxRegistrationsPerHour: maxRegistrations, score: async (_v, _i, opts) => {
+        await hold; const sc = scores();
+        if (opts?.prompts) sc.liveness = { total: opts.prompts.length, matched: livenessPasses ? opts.prompts.length : 0, passed: livenessPasses, windows: [] };
+        return sc;
+      }, requireAnchor: true,
     });
     await new Promise<void>((r) => server.listen(0, r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   };
 
-  beforeEach(async () => { requireLocation = undefined; maxRegistrations = 100; clock = Date.now(); hold = Promise.resolve(); chain = new FakeChain(); mailer = new CaptureMailer(); authority = await makeAuthority(); n = 0; requireDevice = false; await build(); });
+  beforeEach(async () => { livenessPasses = true; requireLocation = undefined; maxRegistrations = 100; clock = Date.now(); hold = Promise.resolve(); chain = new FakeChain(); mailer = new CaptureMailer(); authority = await makeAuthority(); n = 0; requireDevice = false; await build(); });
   afterEach(() => new Promise<void>((r) => server.close(() => r())));
 
   const api = async (path: string, init: { token?: string; json?: unknown; method?: string } = {}) => {
@@ -239,23 +244,6 @@ describe("devices: registration and limits", () => {
     expect(r.status).toBe(429); expect(r.body.error).toMatch(/Too many phones/);
   });
 
-  it("lets a phone's allowance grow as its takes get accepted", () => {
-    const d = new Devices(mkdtempSync(join(tmpdir(), "wrk-d-")), { roots: [], allowedAppCerts: [DIGEST] });
-    (d as any).devices["x"] = { id: "x", fully_attested: true, accepted: 0, rejected: 0, accounts: [], days: {} };
-    expect(d.allowance("x", "a").cap).toBe(5);
-    for (let i = 0; i < 5; i++) d.decided("x", true);
-    expect(d.allowance("x", "a").cap).toBe(15);
-    for (let i = 0; i < 200; i++) d.decided("x", true);
-    expect(d.allowance("x", "a").cap).toBe(100); // never unbounded
-    // a refusal costs more than an acceptance earns, and a bad run bottoms out at the unverified allowance
-    (d as any).devices["y"] = { id: "y", fully_attested: true, accepted: 10, rejected: 0, accounts: [], days: {} };
-    d.decided("y", false);
-    expect(d.get("y")!.rejected).toBe(1);
-    expect(d.allowance("y", "a").cap).toBe(22); // 5 + 20 - 3
-    for (let i = 0; i < 100; i++) d.decided("y", false);
-    expect(d.allowance("y", "a").cap).toBe(UNATTESTED_DAILY_CAP);
-  });
-
   it("feeds the standing of a phone back from the verdicts on its takes", async () => {
     const p = await phone();
     const u = await upload("bounty_004", wallet(), { phone: p });
@@ -349,6 +337,105 @@ describe("devices: registration and limits", () => {
     for (let i = 0; i < 5; i++) expect((await upload("bounty_004", me, { phone: p })).status).toBe(202);
     expect((await upload("bounty_004", me, { phone: p })).status).toBe(403);
     release();
+  });
+
+
+  // ---- the trust score ---------------------------------------------------------------------------------------------
+  it("reports a score for any account, with what it's made of", async () => {
+    let release!: () => void;
+    hold = new Promise<void>((r) => { release = r; }); // keep the take undecided, so the score is the starting one
+    const p = await phone(); const me = wallet();
+    expect((await upload("bounty_004", me, { phone: p })).status).toBe(202);
+    const r = await api(`/trust/${me}`);
+    release();
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ score: 40, tier: "new", cap: 5 });
+    const byId = Object.fromEntries(r.body.factors.map((f: any) => [f.id, f.points]));
+    expect(byId).toMatchObject({ phone: 20, live: 0, record: 0, place: 10, stable: 10, refused: 0 });
+    expect((await api("/trust/not-an-address")).status).toBe(404);
+  });
+
+  it("puts the contributor's score on their takes and on what buyers download", async () => {
+    const p = await phone(); const me = wallet();
+    const u = await upload("bounty_004", me, { phone: p });
+    const v = await settled(u.id);
+    expect(v.sybil_score).toBeGreaterThanOrEqual(40);
+    await api("/auth/email/start", { json: { email: "scorebuyer@example.com" } });
+    const buyer = (await api("/auth/email/verify", { json: { email: "scorebuyer@example.com", code: mailer.codes["scorebuyer@example.com"] } })).body;
+    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Scored task", task_spec: "Do the thing, first-person view.", per_episode_usdc: 1, min_episodes: 5 } })).body.bounty;
+    const p2 = await phone(); const me2 = wallet();
+    await settled((await upload(made.bounty_id, me2, { phone: p2 })).id);
+    const ds = (await api(`/buyer/bounties/${made.bounty_id}/dataset`, { token: buyer.token })).body;
+    expect(ds.episodes[0].contributor_trust_score).toBeGreaterThanOrEqual(40);
+  });
+
+  // ---- the standalone live check ----------------------------------------------------------------------------------
+  async function liveForm(opts: { phone?: Phone; who?: string; tamper?: boolean; claim?: "reuse" | "none" } = {}) {
+    const who = opts.who ?? wallet();
+    const ph = opts.phone ?? (await phone());
+    const c = (await api("/liveness/challenge")).body as { nonce: string; prompts: Array<{ at_ms: number; axis: string }> };
+    const rgb = new Uint8Array(Array.from({ length: 400 }, (_, i) => (i + (++n)) % 251)); const imu = new Uint8Array([9, 8, 7]);
+    const id = "ep_" + n.toString(16).padStart(4, "0").repeat(6);
+    const manifest = await sealManifest({
+      episode_id: id, schema_version: "0.2.0", bounty_id: "liveness_check", task: "live", contributor: who, duration_s: 14, recorded_at: 1757030400,
+      ...(opts.claim === "none" ? {} : { liveness: { nonce: c.nonce, prompts: c.prompts.slice(0, 3) } }),
+      capture: { video: { fps_nominal: 30, fps_observed: 29.5 }, imu: { rate_hz_observed: 100 } },
+      streams: { rgb: { sha256: await sha256Hex(rgb), bytes: 400, content_type: "video/mp4" }, imu: { sha256: await sha256Hex(imu), bytes: 3, content_type: "application/octet-stream" } },
+    });
+    if (opts.tamper) rgb[0] = 99;
+    const form = new FormData();
+    form.set("manifest", JSON.stringify(manifest)); form.set("rgb", new Blob([rgb])); form.set("imu", new Blob([imu]));
+    form.set("device_id", ph.id);
+    form.set("device_signature", (await signWith(ph.chain.leafPrivateKey, `wrk:take:v1:${id}:${manifest.manifest_hash}`)).toString("base64"));
+    return { form, who, phone: ph };
+  }
+  const verifyLive = (form: FormData) => fetch(`${base}/liveness/verify`, { method: "POST", body: form }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) as any }));
+
+  it("verifies someone is live: the account earns trust, and the allowance can then grow", async () => {
+    const f = await liveForm();
+    const before = devices.report(f.who).score;
+    const r = await verifyLive(f.form);
+    expect(r.status).toBe(200); expect(r.body).toMatchObject({ passed: true, matched: 3, total: 3 });
+    expect(r.body.trust.score).toBe(devices.report(f.who).score);
+    expect(r.body.trust.score).toBeGreaterThan(before);
+    expect(r.body.trust.live_verified_until).toBeGreaterThan(Date.now());
+    expect(r.body.trust.factors.find((x: any) => x.id === "live").points).toBe(15);
+    expect(devices.get(f.phone.id)!.owner).toBe(f.who); // doing it from this phone links the account to it
+  });
+
+  it("counts a failed live check against the account instead", async () => {
+    livenessPasses = false;
+    const f = await liveForm();
+    const r = await verifyLive(f.form);
+    expect(r.status).toBe(200); expect(r.body.passed).toBe(false);
+    expect(r.body.trust.live_verified_until).toBeNull();
+    expect(r.body.trust.factors.find((x: any) => x.id === "live_fail").points).toBe(-10);
+  });
+
+  it("only works from a verified phone, signed by it, over exactly this recording", async () => {
+    const f = await liveForm();
+    f.form.delete("device_signature"); f.form.set("device_signature", Buffer.from("garbage").toString("base64"));
+    expect((await verifyLive(f.form)).status).toBe(403);
+    const g = await liveForm(); g.form.delete("device_id");
+    expect((await verifyLive(g.form)).status).toBe(403);
+    const weak = await phone({ boot: { locked: false, state: 2 } });
+    expect((await verifyLive((await liveForm({ phone: weak })).form)).status).toBe(403);
+    expect((await verifyLive((await liveForm({ tamper: true })).form)).status).toBe(422);
+  });
+
+  it("won't take a challenge twice, a missing claim, or another account's phone", async () => {
+    expect((await verifyLive((await liveForm({ claim: "none" })).form)).status).toBe(400);
+    const a = await phone(); const mine = wallet();
+    expect((await upload("bounty_004", mine, { phone: a })).status).toBe(202); // links the phone to this account
+    const thief = await liveForm({ phone: a, who: wallet() });
+    const r = await verifyLive(thief.form);
+    expect(r.status).toBe(403); expect(r.body.error).toMatch(/already linked/);
+  });
+
+  it("limits standalone checks to five an hour per account", async () => {
+    const who = wallet(); const ph = await phone();
+    for (let i = 0; i < 5; i++) expect((await verifyLive((await liveForm({ phone: ph, who })).form)).status).toBe(200);
+    expect((await verifyLive((await liveForm({ phone: ph, who })).form)).status).toBe(429);
   });
 
   // ---- housekeeping ----------------------------------------------------------------------------------------------

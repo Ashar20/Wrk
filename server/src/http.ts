@@ -67,7 +67,7 @@ function parseMultipart(req: IncomingMessage) {
 }
 
 /** What the app is allowed to see. Never includes thresholds or internal fingerprints. */
-export function publicEpisode(e: EpisodeRecord) {
+export function publicEpisode(e: EpisodeRecord, devices?: Devices) {
   const checks = e.validation?.checks;
   return {
     episode_id: e.episode_id,
@@ -82,6 +82,8 @@ export function publicEpisode(e: EpisodeRecord) {
     validator_score: e.validation?.plausibility_score ?? null,
     checks: checks ? { manifest_intact: checks.manifest_intact, streams_intact: checks.streams_intact, duplicate_of: checks.duplicate_of } : null,
     trust_level: e.trust_level ?? "heuristic",
+    /** The contributor's trust score (0 to 100) as it stands now. */
+    sybil_score: devices && e.contributor ? devices.report(e.contributor).score : null,
     liveness: e.liveness ?? null,
     manifest_hash: e.manifest_hash,
     anchor: e.anchor ?? null,
@@ -117,7 +119,14 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
   const liveness = deps.liveness ?? new LivenessChallenges();
   const pdeps: PipelineDeps = {
     ...deps,
-    onDecided: (id, accepted) => { const e = store.get(id); devices?.decided(e?.device_id, accepted, e?.contributor); },
+    onDecided: (id, accepted) => {
+      const e = store.get(id);
+      if (!devices || !e) return;
+      devices.decided(e.device_id, accepted, e.contributor);
+      // What happened to the take that bears on trust: copies and the live check count for or against the account.
+      if (e.contributor && e.validation?.checks.duplicate_of) devices.signal(e.contributor, "duplicate");
+      if (e.contributor && e.liveness?.required) devices.signal(e.contributor, e.liveness.passed ? "live_pass" : "live_fail");
+    },
     onPaid: (bid) => {
       const b = bounties.get(bid);
       if (b && store.list().filter((e) => e.bounty_id === bid && e.payment && !e.payment.error).length >= b.min_episodes) bounties.close(bid);
@@ -184,6 +193,51 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
       if (req.method === "GET" && url.pathname === "/me") {
         const me = accounts.session(bearer(req));
         return me ? send(res, 200, me) : send(res, 401, { error: "Not signed in." });
+      }
+
+      // --- trust: what an account's score is made of, and the standalone live check ------------------------------------------
+      const trust = /^\/trust\/([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(url.pathname);
+      if (req.method === "GET" && trust) {
+        if (!devices) return send(res, 501, { error: "Trust scores are off on this validator." });
+        return send(res, 200, devices.report(trust[1]));
+      }
+      if (req.method === "POST" && url.pathname === "/liveness/verify") {
+        if (!devices) return send(res, 501, { error: "Device checks are off on this validator." });
+        const { fields, files } = await parseMultipart(req);
+        let manifest: Manifest;
+        try { manifest = JSON.parse(fields.manifest ?? "") as Manifest; } catch { return send(res, 400, { error: "manifest is missing or not valid JSON." }); }
+        const episodeId = String(manifest.episode_id ?? ""); const hash = String(manifest.manifest_hash ?? "");
+        const who = typeof manifest.contributor === "string" ? manifest.contributor : "";
+        if (!/^ep_[0-9a-f]{8,64}$/.test(episodeId) || !/^0x[0-9a-f]{64}$/.test(hash) || !who) return send(res, 400, { error: "That request isn't valid." });
+
+        // Only a verified phone can prove anything: the check is signed by its hardware key, over this exact recording.
+        const dev = devices.get(fields.device_id);
+        if (!dev?.fully_attested || !devices.verifySignature(dev.id, `wrk:take:v1:${episodeId}:${hash}`, fields.device_signature ?? "")) {
+          return send(res, 403, { error: "The live check needs a verified phone. Open Wrk once to verify this one." });
+        }
+        const link = devices.linkCheck(dev.id, who);
+        if (!link.ok) return send(res, 403, { error: link.reason });
+        if (!devices.allowLiveTry(who)) return send(res, 429, { error: "Too many live checks. Try again in an hour." });
+
+        const streams: StreamBytes[] = [];
+        for (const [kind, meta] of Object.entries((manifest.streams ?? {}) as Record<string, { sha256: string }>)) {
+          if (files[kind]) streams.push({ kind, sha256: meta.sha256, bytes: new Uint8Array(files[kind]) });
+        }
+        const integrity = await validateEpisode({ manifest, streams, requiredModalities: ["rgb", "imu"], durationRangeS: [5, 60] });
+        if (!integrity.checks.manifest_intact || !integrity.checks.streams_intact) return send(res, 422, { error: "The recording didn't match what was sent.", failures: integrity.failures });
+
+        let prompts: Prompt[];
+        try {
+          const claim = (manifest.liveness ?? {}) as { nonce?: unknown; prompts?: unknown };
+          prompts = liveness.consume(claim.nonce, claim.prompts);
+        } catch (e) { return send(res, 400, { error: e instanceof LivenessError ? e.message : "The live check couldn't be read." }); }
+
+        const video = streams.find((x) => x.kind === "rgb")!, imu = streams.find((x) => x.kind === "imu")!;
+        const scores = await deps.score(video.bytes, imu.bytes, { prompts, livenessOnly: true });
+        const passed = !!scores.liveness?.passed;
+        devices.liveChecked(who, passed);
+        devices.noteLink(dev.id, who); // doing the check from this phone as this account links them, like a first take would
+        return send(res, 200, { passed, matched: scores.liveness?.matched ?? 0, total: prompts.length, trust: devices.report(who) });
       }
 
       // --- what a contributor's app needs to know before recording ---------------------------------------------------------
@@ -402,7 +456,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         const me = requireSession(req);
         const b = bounties.get(bd[1]);
         if (!b || !visibleToBuyer(b, me.address)) return send(res, 404, { error: "No such task." });
-        return send(res, 200, dataset(store.list(), b));
+        return send(res, 200, dataset(store.list(), b, devices ? (a) => devices.report(a).score : undefined));
       }
 
       // --- live world-model guess: a small square crop in, the nearest earlier frame out -------------
@@ -466,7 +520,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
       const m = /^\/episodes\/([\w-]+)$/.exec(url.pathname);
       if (req.method === "GET" && m) {
         const e = store.get(m[1]);
-        return e ? send(res, 200, publicEpisode(e)) : send(res, 404, { error: "No such episode." });
+        return e ? send(res, 200, publicEpisode(e, devices)) : send(res, 404, { error: "No such episode." });
       }
 
       if (req.method === "POST" && url.pathname === "/episodes") {
@@ -487,7 +541,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
 
         // Idempotent: a retried upload returns what is already there and never rescoring or repaying.
         const existing = store.get(episodeId);
-        if (existing) return send(res, 200, publicEpisode(existing));
+        if (existing) return send(res, 200, publicEpisode(existing, devices));
 
         // An email session may only submit as its own payment account.
         const token = bearer(req);
@@ -588,7 +642,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           anchorSignature: fields.anchor_signature || null,
           custodialSecret: me && !fields.anchor_signature ? accounts.secretFor(me.email) : null,
         });
-        return send(res, 202, publicEpisode(rec));
+        return send(res, 202, publicEpisode(rec, devices));
       }
 
       send(res, 404, { error: "Not found." });

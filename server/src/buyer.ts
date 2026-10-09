@@ -41,7 +41,7 @@ export function summary(episodes: EpisodeRecord[], bounties: Bounty[], buyer: st
 }
 
 /** What a buyer downloads: the accepted takes' provenance and scores. No raw media, no thresholds. */
-export function dataset(episodes: EpisodeRecord[], bounty: Bounty) {
+export function dataset(episodes: EpisodeRecord[], bounty: Bounty, sybilScore?: (address: string) => number) {
   const accepted = episodes.filter((e) => e.bounty_id === bounty.bounty_id && e.status === "scored" && e.accepted);
   return {
     bounty_id: bounty.bounty_id,
@@ -61,6 +61,8 @@ export function dataset(episodes: EpisodeRecord[], bounty: Bounty) {
       framing: e.framing ?? null,
       human_reviewed: e.review?.status === "approved",
       trust_level: e.trust_level ?? "heuristic",
+      /** The contributor's trust score (0 to 100) now, from their record rather than this one take. */
+      contributor_trust_score: sybilScore && e.contributor ? sybilScore(e.contributor) : null,
       anchor_signature: e.anchor?.signature ?? null,
       payment_signature: e.payment?.signature ?? null,
     })),
