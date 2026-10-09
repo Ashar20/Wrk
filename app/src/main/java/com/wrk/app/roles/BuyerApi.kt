@@ -13,6 +13,9 @@ data class BuyerBounty(
     val minEpisodes: Int,
     val budgetUsd: Double,
     val humanReview: Boolean,
+    /** Contributors must pass a live head-movement check / use a verified phone. */
+    val liveCheck: Boolean = false,
+    val verifiedOnly: Boolean = false,
     val accepted: Int,
     val rejected: Int,
     val inReview: Int,
@@ -39,6 +42,7 @@ fun parseBuyerSummary(o: JSONObject): BuyerSummary {
             id = b.getString("bounty_id"), title = b.getString("title"), open = b.optString("status") == "open",
             ownerIsYou = b.optBoolean("owner_is_you"), perEpisodeUsd = b.optDouble("per_episode_usdc"), minEpisodes = b.optInt("min_episodes"),
             budgetUsd = b.optDouble("budget_usdc"), humanReview = b.optString("review_policy") == "borderline",
+            liveCheck = b.optString("liveness") == "require", verifiedOnly = b.optString("min_trust_level") == "attested",
             accepted = b.optInt("accepted"), rejected = b.optInt("rejected"), inReview = b.optInt("in_review"), scoring = b.optInt("scoring"),
             spendUsd = b.optDouble("spend_usdc"), avgPlausibility = if (b.isNull("avg_plausibility")) null else b.optDouble("avg_plausibility"),
             histogram = List(5) { i -> h?.optInt(i) ?: 0 },
@@ -73,12 +77,13 @@ class BuyerApi(private val api: JsonApi) {
      * Posts a task. Where the buyer's key is held by Wrk the funds are locked right away ([CreatedTask.tx] is null);
      * a buyer with their own wallet gets a transaction to sign, and the task opens once it lands.
      */
-    suspend fun create(title: String, spec: String, perTakeUsd: Double, takes: Int, humanReview: Boolean, verifiedOnly: Boolean = false): CreatedTask {
+    suspend fun create(title: String, spec: String, perTakeUsd: Double, takes: Int, humanReview: Boolean, verifiedOnly: Boolean = false, liveCheck: Boolean = false): CreatedTask {
         val r = api.post(
             "/buyer/bounties",
             JSONObject().put("title", title).put("task_spec", spec).put("per_episode_usdc", perTakeUsd).put("min_episodes", takes)
                 .put("review_policy", if (humanReview) "borderline" else "none")
-                .put("min_trust_level", if (verifiedOnly) "attested" else "heuristic"),
+                .put("min_trust_level", if (verifiedOnly) "attested" else "heuristic")
+                .put("liveness", if (liveCheck) "require" else "off"),
         )
         val e = r.optJSONObject("escrow")
         return CreatedTask(r.getJSONObject("bounty").getString("bounty_id"), funded = e?.optBoolean("funded", true) ?: true, tx = e?.optString("tx")?.takeIf { it.isNotBlank() })

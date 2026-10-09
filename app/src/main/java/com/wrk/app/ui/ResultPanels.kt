@@ -87,6 +87,11 @@ internal fun motionHint(plausibility: Double?, motionCorr: Double?) = when {
     else -> "Whether what the camera saw matches how the phone moved."
 }
 
+internal fun liveHint(s: EpisodeState) = when {
+    s.livePassed == true -> "The head movements we asked for showed up in both the video and your phone's motion."
+    else -> "We asked for ${s.liveTotal} head movements and ${s.liveMatched ?: 0} showed up in both the video and your phone's motion. Do each one as soon as it appears."
+}
+
 internal fun framingHint(s: EpisodeState) = framingHint(s.handsVisiblePercent)
 internal fun motionHint(s: EpisodeState) = motionHint(s.plausibility, s.motionCorr)
 
@@ -96,6 +101,7 @@ private fun MetersCard(s: EpisodeState) {
         Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Meter("Hands in view", s.framing, framingHint(s))
             Meter("Motion check", s.plausibility, motionHint(s))
+            if (s.liveTotal != null && s.liveTotal > 0) Meter("Live check", (s.liveMatched ?: 0).toDouble() / s.liveTotal, liveHint(s))
         }
     }
 }

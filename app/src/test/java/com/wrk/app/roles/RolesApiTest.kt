@@ -157,4 +157,23 @@ class RolesApiTest {
             assertEquals(null, b[2].escrow)
         }
     }
+
+    @Test fun aTaskCanRequireVerifiedPhonesAndALiveCheck() = runTest {
+        MockWebServer().use { s ->
+            s.enqueue(MockResponse().setResponseCode(201).setBody("""{"bounty":{"bounty_id":"b9"},"escrow":{"funded":true}}"""))
+            BuyerApi(api(s)).create("Careful task", "Do the careful thing, first-person view.", 1.0, 5, false, verifiedOnly = true, liveCheck = true)
+            val b = JSONObject(s.takeRequest().body.readUtf8())
+            assertEquals("attested", b.getString("min_trust_level")); assertEquals("require", b.getString("liveness"))
+        }
+    }
+
+    @Test fun theSummaryShowsWhichTasksNeedVerifiedPhonesOrALiveCheck() = runTest {
+        MockWebServer().use { s ->
+            s.enqueue(MockResponse().setBody("""{"total_spend_usdc":0,"bounties":[{"bounty_id":"a","title":"A","status":"open","owner_is_you":true,"per_episode_usdc":1,"min_episodes":3,
+                "budget_usdc":5,"accepted":0,"rejected":0,"in_review":0,"scoring":0,"spend_usdc":0,"avg_plausibility":null,"histogram":[0,0,0,0,0],
+                "liveness":"require","min_trust_level":"attested","review_policy":"none"}]}"""))
+            val x = BuyerApi(api(s)).summary().bounties.single()
+            assertTrue(x.liveCheck); assertTrue(x.verifiedOnly); assertFalse(x.humanReview)
+        }
+    }
 }

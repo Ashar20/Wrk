@@ -49,6 +49,12 @@ import com.wrk.app.capture.CaptureException
 import com.wrk.app.capture.HandFrame
 import com.wrk.app.capture.HandTracker
 import com.wrk.app.capture.LivePredictor
+import com.wrk.app.capture.LivenessApi
+import com.wrk.app.capture.LivenessChallenge
+import com.wrk.app.capture.LivenessClaim
+import com.wrk.app.capture.LivenessSchedule
+import com.wrk.app.roles.ApiException
+import com.wrk.app.roles.JsonApi
 import com.wrk.app.capture.PredictClient
 import com.wrk.app.capture.Prediction
 import com.wrk.app.capture.ImuRecorder
@@ -158,6 +164,9 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
     var cameraReady by remember { mutableStateOf(false) }
     var coaching by remember { mutableStateOf<String?>(null) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
+    // For tasks with a live check: the random head movements asked for this take.
+    val liveApi = remember { LivenessApi(JsonApi(BuildConfig.API_BASE, { null })) }
+    var challenge by remember { mutableStateOf<LivenessChallenge?>(null) }
 
     var elapsedForHands by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
@@ -191,7 +200,21 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
         if (p is Phase.Countdown) {
             Text("${p.n}", style = WrkType.figureHero.copy(fontSize = 76.sp), color = WrkColors.onInk, modifier = Modifier.align(Alignment.Center))
         }
-        coaching?.let {
+        // The live check: one clear instruction at a time, with how far through it you are.
+        val live = challenge
+        val now = if (live != null) LivenessSchedule.current(live.prompts, elapsedMs) else null
+        if (live != null && now != null && p is Phase.Recording) {
+            Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.clip(RoundedCornerShape(WrkShape.card)).background(WrkColors.butter).padding(horizontal = 22.dp, vertical = 16.dp)) {
+                    Text(now.text, style = WrkType.title, color = WrkColors.butterInk, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+                Text(
+                    "Live check ${live.prompts.indexOf(now) + 1} of ${live.prompts.size}",
+                    style = WrkType.label, color = WrkColors.onInk, modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+        coaching?.takeIf { now == null }?.let {
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp).clip(RoundedCornerShape(50)).background(WrkColors.butter).padding(horizontal = 16.dp, vertical = 10.dp)) {
                 Text(it, style = WrkType.body, color = WrkColors.butterInk)
             }
@@ -205,11 +228,17 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
     problem?.let { FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) { Text(it, style = WrkType.body, color = WrkColors.butterInk) } }
 
     val p = phase
-    val canStop = p is Phase.Recording && elapsedMs >= minMs
+    val live = challenge
+    val liveDone = live == null || LivenessSchedule.canStop(live.prompts, elapsedMs, minMs)
+    val canStop = p is Phase.Recording && elapsedMs >= minMs && liveDone
     val label = when (p) {
         Phase.Ready -> "Start recording"
         is Phase.Countdown -> "Get ready…"
-        is Phase.Recording -> if (canStop) "Stop and review" else "Keep going (${((minMs - elapsedMs) / 1000 + 1)} s)"
+        is Phase.Recording -> when {
+            canStop -> "Stop and review"
+            elapsedMs >= minMs -> "Finish the live check"
+            else -> "Keep going (${((minMs - elapsedMs) / 1000 + 1)} s)"
+        }
         Phase.Saving -> "Saving…"
     }
     KnobBar(
@@ -219,6 +248,13 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
             if (p == Phase.Ready) {
                 problem = null; coaching = null
                 scope.launch {
+                    challenge = null
+                    if (bounty.liveCheck) {
+                        // The sequence is random per take and unknown until now, which is what makes it proof the take is live.
+                        challenge = try { liveApi.challenge() } catch (e: ApiException) {
+                            problem = "Couldn't start the live check. Check your connection and try again."; return@launch
+                        }
+                    }
                     val id = newEpisodeId()
                     val file = File(container.episodes.begin(id), "rgb.mp4")
                     for (n in 3 downTo 1) { phase = Phase.Countdown(n); delay(1000) }
@@ -244,7 +280,12 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
                         tracker.cropEnabled = false
                         phase = Phase.Saving
                         withContext(Dispatchers.IO) { predictor.saveTo(File(container.episodes.dir(id), "predictions.json")) }
-                        onCaptured(PendingCapture(id, raw, bounty, overlay = if (analysisOn) tracker.stats() else null))
+                        onCaptured(
+                            PendingCapture(
+                                id, raw, bounty, overlay = if (analysisOn) tracker.stats() else null,
+                                liveness = challenge?.let { LivenessClaim(it.nonce, LivenessSchedule.claimed(it.prompts, raw.durationMs)) },
+                            ),
+                        )
                     } catch (e: CaptureException) {
                         tracker.cropEnabled = false
                         problem = e.message; phase = Phase.Ready; container.episodes.delete(id)

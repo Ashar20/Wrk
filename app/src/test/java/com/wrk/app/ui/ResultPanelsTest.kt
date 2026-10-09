@@ -44,4 +44,11 @@ class ResultPanelsTest {
         assertTrue(parseTraces("[]").isEmpty)
         assertTrue(parseTraces("""[{"t":0,"flowYaw":0,"gyroYaw":0,"flowPitch":0,"gyroPitch":0}]""").isEmpty)
     }
+
+    @Test fun theLiveCheckHintSaysHowManyMovementsShowedUp() {
+        val ok = state().copy(liveMatched = 3, liveTotal = 3, livePassed = true)
+        assertTrue(liveHint(ok).contains("showed up in both"))
+        val bad = state().copy(liveMatched = 1, liveTotal = 3, livePassed = false)
+        assertTrue(liveHint(bad).contains("asked for 3") && liveHint(bad).contains("1 showed up"))
+    }
 }

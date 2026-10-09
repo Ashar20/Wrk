@@ -23,6 +23,8 @@ class PendingCapture(
     val bounty: Bounty,
     /** How the live hand overlay behaved during this take, for the technical details. */
     val overlay: com.wrk.app.episode.OverlayStats? = null,
+    /** The live-check prompts this take answered, for tasks that have one. */
+    val liveness: com.wrk.app.capture.LivenessClaim? = null,
 )
 
 /** Hand-wired dependencies, shared by the UI and the background upload worker. */

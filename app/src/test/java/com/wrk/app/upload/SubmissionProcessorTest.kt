@@ -246,4 +246,19 @@ class SubmissionProcessorTest {
         processor().process("ep1")
         assertEquals("attested", store.state("ep1")!!.trustLevel)
     }
+
+    @Test fun theLiveCheckOutcomeIsKeptForTheResultScreen() = runTest {
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += EpisodeView("scored", false, listOf("x"), null, null, null, null, liveness = LiveResult(false, 1, 3), manifestIntact = true)
+        processor().process("ep1")
+        val s = store.state("ep1")!!
+        assertEquals(1, s.liveMatched); assertEquals(3, s.liveTotal); assertEquals(false, s.livePassed)
+    }
+
+    @Test fun tasksWithoutALiveCheckLeaveItBlank() = runTest {
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += view("scored", false, listOf("x"))
+        processor().process("ep1")
+        assertEquals(null, store.state("ep1")!!.liveTotal)
+    }
 }

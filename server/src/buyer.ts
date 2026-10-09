@@ -33,6 +33,8 @@ export function summary(episodes: EpisodeRecord[], bounties: Bounty[], buyer: st
     min_episodes: b.min_episodes,
     budget_usdc: b.budget_usdc,
     review_policy: b.review_policy ?? "none",
+    liveness: b.liveness ?? "off",
+    min_trust_level: b.min_trust_level,
     ...bountyStats(episodes, b),
   }));
   return { total_spend_usdc: cents(rows.reduce((n, r) => n + r.spend_usdc, 0)), bounties: rows };

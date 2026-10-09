@@ -33,4 +33,10 @@ Setup: validator running with devnet configured, phone connected, `adb reverse t
     `locked: 60`. Record and submit a take as a contributor, then run it again with the episode id: the take is `accepted` on-chain and `locked` has dropped by exactly the per-take pay. The contributor's balance rose by the same amount.
 11. **A rejected take pays nothing.** Submit the replay fixture: it's refused, the vault is untouched, and its reservation is released.
 
+## Proof it's a real phone, and live
+
+12. **Verified phone.** Open Account: "This phone: Verified". The validator checked the key came from the phone's secure hardware, running the genuine app. Takes from it show "Signed by a verified phone" and trust level `attested` in the details.
+13. **Live check.** Open "Cup pick-and-place, live check" ($1.20). While you work the app asks, a few seconds apart, to turn your head or nod. Stop is disabled until the checks are done. The result shows a "Live check" meter. Submit the replay fixture to the same task: it can't have followed a sequence nobody knew, so it's refused.
+14. **Limits.** Without a verified phone an account is capped at 5 takes a day; a verified phone starts at 20 and grows with accepted takes.
+
 Fallback if recording isn't possible: run the two fixture commands above and show the results.

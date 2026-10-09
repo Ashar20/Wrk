@@ -110,6 +110,8 @@ private fun BuyerBountyCard(b: BuyerBounty, onFinishFunding: () -> Unit, onClick
                 if (!b.open) Tag("Full")
             }
             Tag(if (b.ownerIsYou) "Posted by you" else "Wrk demo task")
+            listOfNotNull("Verified phones only".takeIf { b.verifiedOnly }, "Live check".takeIf { b.liveCheck }, "Reviewed by a person".takeIf { b.humanReview })
+                .takeIf { it.isNotEmpty() }?.let { Tag(it.joinToString(" · ")) }
             b.escrow?.let { e ->
                 if (e.funded) Tag("Locked in escrow${e.lockedUsd?.let { String.format(Locale.US, " · $%.2f", it) } ?: ""}")
                 else if (b.ownerIsYou) {
@@ -237,6 +239,7 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
     var takes by remember { mutableStateOf("50") }
     var review by remember { mutableStateOf(false) }
     var verifiedOnly by remember { mutableStateOf(false) }
+    var liveCheck by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
 
@@ -263,6 +266,11 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
                     Chip("Any phone", !verifiedOnly) { verifiedOnly = false }
                     Chip("Only verified phones", verifiedOnly) { verifiedOnly = true }
                 }
+                Tag("Proof the recording is live")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("Not required", !liveCheck) { liveCheck = false }
+                    Chip("Head-movement check", liveCheck) { liveCheck = true }
+                }
                 Tag("Close calls")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Chip("Checked automatically", !review) { review = false }
@@ -287,7 +295,7 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
             scope.launch {
                 busy = true; problem = null
                 try {
-                    val t = api.create(title.trim(), spec.trim(), perTake, count, review, verifiedOnly)
+                    val t = api.create(title.trim(), spec.trim(), perTake, count, review, verifiedOnly, liveCheck)
                     if (!t.funded && t.tx != null) {
                         problem = fundTask(api, t.id, t.tx, onSignAndSend)
                         // Posted either way: if funding didn't finish, it's on the dashboard with a "Finish funding" button.

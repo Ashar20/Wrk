@@ -12,6 +12,8 @@ data class Bounty(
     val maxDurationS: Int,
     val perEpisodeUsd: Double,
     val deadline: Long,
+    /** The contributor is prompted for head movements, and the take must show them. */
+    val liveCheck: Boolean = false,
 ) {
     companion object {
         fun fromJson(o: JSONObject): Bounty {
@@ -27,6 +29,7 @@ data class Bounty(
                 maxDurationS = range.getInt(1),
                 perEpisodeUsd = o.getDouble("per_episode_usdc"),
                 deadline = o.getLong("deadline"),
+                liveCheck = o.optString("liveness") == "require",
             )
         }
     }

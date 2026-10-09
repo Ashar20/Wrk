@@ -37,6 +37,7 @@ class SubmissionProcessor(
                 framing = v.framing, plausibility = v.plausibility, handsVisiblePercent = v.handsVisiblePercent,
                 motionCorr = v.motionCorr, validatorScore = v.validatorScore, duplicateOf = v.duplicateOf,
                 manifestIntact = v.manifestIntact, streamsIntact = v.streamsIntact, trustLevel = v.trustLevel,
+                liveMatched = v.liveness?.matched, liveTotal = v.liveness?.total, livePassed = v.liveness?.passed,
             )
         }
         val f = File(store.dir(id), "traces.json")

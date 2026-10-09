@@ -33,7 +33,12 @@ data class EpisodeView(
     val streamsIntact: Boolean? = null,
     /** "attested" when the take was signed by a verified phone; otherwise "heuristic". Decided by the validator. */
     val trustLevel: String? = null,
+    /** Present only for tasks with a live check. */
+    val liveness: LiveResult? = null,
 )
+
+/** How many of the head movements asked for showed up in both the video and the phone's motion. */
+data class LiveResult(val passed: Boolean, val matched: Int, val total: Int)
 
 sealed interface UploadResult {
     data class Ok(val view: EpisodeView) : UploadResult
@@ -169,6 +174,7 @@ class HttpEpisodeApi(
             manifestIntact = o.optJSONObject("checks")?.optBoolean("manifest_intact"),
             streamsIntact = o.optJSONObject("checks")?.optBoolean("streams_intact"),
             trustLevel = o.optString("trust_level").takeIf { it.isNotBlank() && it != "null" },
+            liveness = o.optJSONObject("liveness")?.let { LiveResult(it.optBoolean("passed"), it.optInt("matched"), it.optInt("total")) },
         )
     }
 }
