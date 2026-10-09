@@ -41,6 +41,7 @@ fun buildEpisode(
     cluster: String = "devnet",
     episodeId: String = newEpisodeId(),
     liveness: com.wrk.app.capture.LivenessClaim? = null,
+    location: com.wrk.app.location.CoarseLocation? = null,
 ): BuiltEpisode {
     val seconds = capture.durationMs / 1000.0
     if (seconds < bounty.minDurationS) throw EpisodeException("That take was ${"%.0f".format(seconds)} s. This task needs at least ${bounty.minDurationS} s.")
@@ -94,6 +95,7 @@ fun buildEpisode(
             "imu" to jsonOf("sha256" to sha256Hex(imuBytes).json(), "bytes" to imuBytes.size.json(), "content_type" to "application/octet-stream".json()),
         ),
         "sync" to jsonOf("method" to "recorder_anchored".json(), "measured_skew_ms" to JsonNull),
+        *(location?.let { arrayOf("location" to parseJson(it.toJson().toString())) } ?: emptyArray()),
         *(liveness?.let { arrayOf("liveness" to parseJson(it.toJson().toString())) } ?: emptyArray()),
         "outcome" to (selfReport?.let { if (it.taskCompleted) "success" else "failure" } ?: "unknown").json(),
         "self_report" to (selfReport?.let { jsonOf("task_completed" to it.taskCompleted.json(), "notes" to it.notes.json()) } ?: JsonNull),

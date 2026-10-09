@@ -19,7 +19,7 @@ class SubmissionService(private val context: Context, private val c: WrkContaine
         val built = buildEpisode(
             capture = p.raw, dir = c.episodes.dir(p.episodeId), bounty = p.bounty, contributor = account.address,
             assetId = "asset_" + c.accounts.installId(), selfReport = report,
-            clientVersion = BuildConfig.VERSION_NAME, cluster = BuildConfig.SOLANA_CLUSTER, episodeId = p.episodeId, liveness = p.liveness,
+            clientVersion = BuildConfig.VERSION_NAME, cluster = BuildConfig.SOLANA_CLUSTER, episodeId = p.episodeId, liveness = p.liveness, location = p.location,
         )
         c.episodes.write(
             built.episodeId,

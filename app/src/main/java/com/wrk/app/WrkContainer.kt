@@ -25,6 +25,8 @@ class PendingCapture(
     val overlay: com.wrk.app.episode.OverlayStats? = null,
     /** The live-check prompts this take answered, for tasks that have one. */
     val liveness: com.wrk.app.capture.LivenessClaim? = null,
+    /** Roughly where the take was made (about a kilometre), when the phone could say. */
+    val location: com.wrk.app.location.CoarseLocation? = null,
 )
 
 /** Hand-wired dependencies, shared by the UI and the background upload worker. */

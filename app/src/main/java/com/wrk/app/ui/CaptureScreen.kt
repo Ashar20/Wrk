@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -60,6 +61,10 @@ import com.wrk.app.capture.Prediction
 import com.wrk.app.capture.ImuRecorder
 import com.wrk.app.capture.VideoRecorder
 import com.wrk.app.data.Bounty
+import com.wrk.app.location.CoarseLocation
+import com.wrk.app.location.LocationFinder
+import com.wrk.app.location.Policy
+import com.wrk.app.location.PolicyApi
 import com.wrk.app.design.FieldCard
 import com.wrk.app.design.InkButton
 import com.wrk.app.design.KnobBar
@@ -89,11 +94,16 @@ fun CaptureScreen(bounty: Bounty, container: WrkContainer, onCaptured: (PendingC
 
     fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
     var cameraOk by remember { mutableStateOf(granted(Manifest.permission.CAMERA)) }
+    var locationOk by remember { mutableStateOf(granted(Manifest.permission.ACCESS_COARSE_LOCATION)) }
     var asked by remember { mutableStateOf(false) }
+    val all = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_COARSE_LOCATION)
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
         cameraOk = r[Manifest.permission.CAMERA] == true || granted(Manifest.permission.CAMERA)
+        locationOk = r[Manifest.permission.ACCESS_COARSE_LOCATION] == true || granted(Manifest.permission.ACCESS_COARSE_LOCATION)
         asked = true
     }
+    // Whether this validator needs an approximate location to accept takes. If it can't be reached we carry on and it decides at upload.
+    val policy by produceState<Policy?>(null) { value = PolicyApi(JsonApi(BuildConfig.API_BASE, { null })).get() }
 
     // The scorer pairs image motion with head rotation, which only works in a fixed orientation.
     DisposableEffect(Unit) {
@@ -114,17 +124,26 @@ fun CaptureScreen(bounty: Bounty, container: WrkContainer, onCaptured: (PendingC
             )
             !cameraOk -> BlockedPanel(
                 "Allow the camera to record",
-                if (asked) "Camera access is off. Turn it on in settings to record." else "Wrk records short clips of what you're doing, with your phone's motion, to check them. Nothing is shared until you submit.",
+                if (asked) "Camera access is off. Turn it on in settings to record." else "Wrk records short clips of what you're doing, with your phone's motion, to check them. It also notes roughly where you are (an area of about a kilometre) to catch duplicate accounts. Nothing is shared until you submit.",
             ) {
-                if (!asked) InkButton("Allow camera and microphone", { request.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)) }, Modifier.fillMaxWidth())
+                if (!asked) InkButton("Allow camera, microphone and approximate location", { request.launch(all) }, Modifier.fillMaxWidth())
                 else {
-                    InkButton("Try again", { request.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)) }, Modifier.fillMaxWidth())
+                    InkButton("Try again", { request.launch(all) }, Modifier.fillMaxWidth())
                     PaperButton("Open settings", {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
                     }, Modifier.fillMaxWidth())
                 }
             }
-            else -> Viewfinder(bounty, container, scope, onCaptured)
+            policy?.locationRequired == true && !locationOk -> BlockedPanel(
+                "Allow approximate location",
+                "Wrk needs to know roughly where you are (an area of about a kilometre, never an exact spot) to check that takes aren't coming from lots of duplicate accounts. It's rounded on your phone and used for nothing else.",
+            ) {
+                InkButton("Allow approximate location", { request.launch(all) }, Modifier.fillMaxWidth())
+                PaperButton("Open settings", {
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+                }, Modifier.fillMaxWidth())
+            }
+            else -> Viewfinder(bounty, container, scope, onCaptured, locationOk, policy?.locationRequired == true)
         }
     }
 }
@@ -146,6 +165,8 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
     container: WrkContainer,
     scope: kotlinx.coroutines.CoroutineScope,
     onCaptured: (PendingCapture) -> Unit,
+    locationOk: Boolean,
+    locationRequired: Boolean,
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -249,6 +270,12 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
                 problem = null; coaching = null
                 scope.launch {
                     challenge = null
+                    // Where the take is made, to about a kilometre. Fetched now so recording isn't held up later.
+                    var where: CoarseLocation? = null
+                    if (locationOk) where = LocationFinder(context).current()
+                    if (where == null && locationRequired) {
+                        problem = "Couldn't find your approximate location. Turn on location for this phone, then try again."; return@launch
+                    }
                     if (bounty.liveCheck) {
                         // The sequence is random per take and unknown until now, which is what makes it proof the take is live.
                         challenge = try { liveApi.challenge() } catch (e: ApiException) {
@@ -284,6 +311,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
                             PendingCapture(
                                 id, raw, bounty, overlay = if (analysisOn) tracker.stats() else null,
                                 liveness = challenge?.let { LivenessClaim(it.nonce, LivenessSchedule.claimed(it.prompts, raw.durationMs)) },
+                                location = where,
                             ),
                         )
                     } catch (e: CaptureException) {
