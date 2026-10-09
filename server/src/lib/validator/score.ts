@@ -114,7 +114,7 @@ function containerExtension(video: Uint8Array): string {
   return "bin";
 }
 
-async function extractFrames(path: string): Promise<SampledFrame[]> {
+export async function extractFrames(path: string): Promise<SampledFrame[]> {
   const { width, height } = await probeSize(path);
   if (!width || !height) return [];
 
@@ -157,7 +157,7 @@ async function extractFrames(path: string): Promise<SampledFrame[]> {
   }));
 }
 
-async function flowSeries(frames: SampledFrame[]): Promise<FlowSample[]> {
+export async function flowSeries(frames: SampledFrame[]): Promise<FlowSample[]> {
   const out: FlowSample[] = [];
   if (frames.length < 2) return out;
 
