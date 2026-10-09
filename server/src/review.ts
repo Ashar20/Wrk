@@ -26,6 +26,7 @@ export function queueItem(e: EpisodeRecord, bounty: Bounty) {
     framing: e.framing ?? null,
     hands_visible_percent: e.hands_visible_percent ?? null,
     flow_gyro_corr: e.validation?.checks.flow_gyro_corr ?? null,
+    trust_level: e.trust_level ?? "heuristic",
     per_episode_usdc: bounty.per_episode_usdc,
     fee_usdc: REVIEW_FEE_USDC,
     received_at: e.received_at,
@@ -83,6 +84,7 @@ export async function decide(
       review: { ...e.review!, status: approved ? "approved" : "rejected", reviewer: reviewer.address, decided_at: Math.floor(Date.now() / 1000), note: note.slice(0, 280) },
     });
 
+    deps.onDecided?.(id, approved);
     const bps = Math.max(0, Math.min(10_000, Math.round((e.plausibility ?? 0) * 10_000)));
     if (approved) await settleAccept(deps, id, bounty, bps);
     else await settleReject(deps, id, bounty, bps);

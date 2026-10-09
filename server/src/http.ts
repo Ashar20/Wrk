@@ -6,6 +6,7 @@ import { BountyInputError, type BountyStore } from "./bountyStore";
 import { dataset, summary, visibleToBuyer } from "./buyer";
 import { decide, historyFor, pendingFor, queueItem, ReviewError } from "./review";
 import { escrowRef } from "./pipeline";
+import { DeviceError, type Devices } from "./attestation/devices";
 import type { EscrowRef } from "./solana/chain";
 import bs58 from "bs58";
 import type { EpisodeRecord } from "./store";
@@ -69,6 +70,7 @@ export function publicEpisode(e: EpisodeRecord) {
     flow_gyro_corr: checks?.flow_gyro_corr ?? null,
     validator_score: e.validation?.plausibility_score ?? null,
     checks: checks ? { manifest_intact: checks.manifest_intact, streams_intact: checks.streams_intact, duplicate_of: checks.duplicate_of } : null,
+    trust_level: e.trust_level ?? "heuristic",
     manifest_hash: e.manifest_hash,
     anchor: e.anchor ?? null,
     payment: e.payment && !e.payment.error ? e.payment : null,
@@ -77,16 +79,16 @@ export function publicEpisode(e: EpisodeRecord) {
   };
 }
 
-export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore };
+export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean };
 
 const bearer = (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, limit = 10_000): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let n = 0;
   for await (const c of req) {
     n += (c as Buffer).length;
-    if (n > 10_000) throw new AuthError("Request too large.", 413);
+    if (n > limit) throw new AuthError("Request too large.", 413);
     chunks.push(c as Buffer);
   }
   try {
@@ -99,8 +101,10 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?: number) => Promise<number> } {
   const { store, accounts, bounties } = deps;
   // A bounty closes itself once it has paid for as many takes as it asked for.
+  const devices = deps.devices;
   const pdeps: PipelineDeps = {
     ...deps,
+    onDecided: (id, accepted) => devices?.decided(store.get(id)?.device_id, accepted),
     onPaid: (bid) => {
       const b = bounties.get(bid);
       if (b && store.list().filter((e) => e.bounty_id === bid && e.payment && !e.payment.error).length >= b.min_episodes) bounties.close(bid);
@@ -165,6 +169,25 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
       if (req.method === "GET" && url.pathname === "/me") {
         const me = accounts.session(bearer(req));
         return me ? send(res, 200, me) : send(res, 401, { error: "Not signed in." });
+      }
+
+      // --- device attestation: prove a take comes from a real phone running the real app -----------------------------------
+      if (req.method === "GET" && url.pathname === "/device/challenge") {
+        if (!devices) return send(res, 501, { error: "Device checks are off on this validator." });
+        return send(res, 200, devices.challenge());
+      }
+      if (req.method === "POST" && url.pathname === "/device/register") {
+        if (!devices) return send(res, 501, { error: "Device checks are off on this validator." });
+        const b = await readJson(req, 40_000);
+        const chain = Array.isArray(b.chain) ? b.chain.map(String).slice(0, 8) : [];
+        const r = devices.register(String(b.challenge ?? ""), chain);
+        return send(res, 200, {
+          device_id: r.device.id,
+          trust: r.device.fully_attested ? "attested" : "heuristic",
+          level: r.device.level,
+          boot_verified: r.device.boot_verified,
+          app_verified: r.device.app_verified,
+        });
       }
 
       // --- wallet sign-in: sign a one-time challenge to prove you hold the address ---------------------------------------------
@@ -255,6 +278,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
             title: String(b.title ?? ""), task_spec: String(b.task_spec ?? ""),
             per_episode_usdc: Number(b.per_episode_usdc), min_episodes: Number(b.min_episodes),
             review_policy: b.review_policy === "borderline" ? "borderline" : "none",
+            min_trust_level: b.min_trust_level === "attested" ? "attested" : "heuristic",
           },
           me.address,
         );
@@ -456,6 +480,30 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           return send(res, 422, { error: "Integrity check failed.", failures: integrity.failures });
         }
 
+        // Who made this take: a verified phone's hardware key, or nobody we can vouch for. Never taken on trust.
+        const deviceId = fields.device_id || null;
+        let trust: "heuristic" | "attested" = "heuristic";
+        const contributorId = typeof manifest.contributor === "string" ? manifest.contributor : "";
+        if (deviceId) {
+          const dev = devices?.get(deviceId);
+          if (!devices || !dev) return send(res, 400, { error: "This phone isn't registered. Open Wrk again to verify it." });
+          if (!devices.verifySignature(deviceId, `wrk:take:v1:${episodeId}:${hash}`, fields.device_signature ?? "")) {
+            return send(res, 400, { error: "The phone's signature didn't match this take." });
+          }
+          trust = dev.fully_attested ? "attested" : "heuristic";
+        }
+        if (trust !== "attested" && (deps.requireDevice || bounty.min_trust_level === "attested")) {
+          return send(res, 403, { error: "This needs a verified phone. Update Wrk and open it once to verify yours." });
+        }
+        if (devices) {
+          const a = devices.allowance(deviceId, contributorId);
+          if (a.used >= a.cap) {
+            return send(res, 403, { error: a.farming
+              ? `Too many accounts have been used on this phone, so it's limited to ${a.cap} takes a day. Come back tomorrow.`
+              : `You've reached today's limit of ${a.cap} takes. Come back tomorrow.` });
+          }
+        }
+
         for (const s of streams) store.saveBlob(episodeId, s.kind, s.bytes);
         const rec = store.put({
           episode_id: episodeId,
@@ -470,7 +518,10 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           plausibility: null,
           signature: [],
           received_at: Math.floor(Date.now() / 1000),
+          device_id: deviceId,
+          trust_level: trust,
         });
+        devices?.note(deviceId, contributorId);
 
         void runPipeline(pdeps, {
           episodeId,
@@ -485,8 +536,8 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
 
       send(res, 404, { error: "Not found." });
     } catch (err) {
-      const status = err instanceof AuthError || err instanceof ReviewError ? err.status : err instanceof BountyInputError ? 400 : ((err as { status?: number }).status ?? 500);
-      send(res, status, { error: err instanceof Error ? err.message : String(err) });
+      const status = err instanceof AuthError || err instanceof ReviewError || err instanceof DeviceError ? err.status : err instanceof BountyInputError ? 400 : ((err as { status?: number }).status ?? 500);
+      send(res, status, { error: err instanceof Error ? err.message : String(err), ...(err instanceof DeviceError && err.failures.length ? { failures: err.failures } : {}) });
     }
   });
   // Exposed so tests can age out issued transactions without waiting half an hour.

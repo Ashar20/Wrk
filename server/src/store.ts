@@ -37,6 +37,10 @@ export interface EpisodeRecord {
   review?: ReviewRecord;
   /** What has happened to the take in the escrow: accepted (paid) or rejected (reservation released). */
   chain_settled?: "accepted" | "rejected";
+  /** The attested phone that made this take, when it came from one. */
+  device_id?: string | null;
+  /** "attested" only when the take is signed by a verified device's hardware key. Never self-declared. */
+  trust_level?: "heuristic" | "attested";
   received_at: number;
 }
 

@@ -18,6 +18,8 @@ export interface PipelineDeps {
   validatorId?: string | null;
   /** Called after a payout lands, so a bounty that has met its quota can close. */
   onPaid?: (bountyId: string) => void;
+  /** Called once a take is finally accepted or refused, so its device builds (or loses) standing. */
+  onDecided?: (episodeId: string, accepted: boolean) => void;
 }
 
 /** Takes this close to a bounty's bar are worth a human look when the bounty asks for one. */
@@ -85,7 +87,7 @@ export async function runPipeline(
       duration_s: rec.duration_s,
       plausibility,
       framing: scores.framing.percent === null ? null : scores.framing.percent / 100,
-      trust_level: "heuristic",
+      trust_level: rec.trust_level ?? "heuristic",
       ua_class: "other",
       recorded_at: rec.recorded_at,
     };
@@ -143,6 +145,8 @@ export async function runPipeline(
     });
     // The evidence behind the motion score, for the app to draw. Best effort: a missing chart never blocks payment.
     try { store.saveBlob(episodeId, "traces.json", Buffer.from(JSON.stringify(scores.traces))); } catch { /* chart only */ }
+
+    deps.onDecided?.(episodeId, accepted);
 
     // Money moves only through the escrow: accepted takes are paid from the task's vault; everything else on-chain is refused,
     // which releases the vault's reservation for the next contributor.

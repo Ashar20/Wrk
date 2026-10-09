@@ -9,6 +9,8 @@ export interface NewBountyInput {
   per_episode_usdc: number;
   min_episodes: number;
   review_policy?: "none" | "borderline";
+  /** "attested" restricts the task to takes signed by a verified phone. */
+  min_trust_level?: "heuristic" | "attested";
 }
 
 export class BountyInputError extends Error {}
@@ -103,7 +105,7 @@ export class BountyStore {
       min_plausibility: 0.6,
       motion_policy: "require",
       min_framing: 0,
-      min_trust_level: "heuristic",
+      min_trust_level: input.min_trust_level === "attested" ? "attested" : "heuristic",
       per_episode_usdc: cents(input.per_episode_usdc),
       ...money,
       license: "commercial_ai_training",

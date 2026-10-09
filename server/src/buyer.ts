@@ -58,6 +58,7 @@ export function dataset(episodes: EpisodeRecord[], bounty: Bounty) {
       plausibility: e.plausibility,
       framing: e.framing ?? null,
       human_reviewed: e.review?.status === "approved",
+      trust_level: e.trust_level ?? "heuristic",
       anchor_signature: e.anchor?.signature ?? null,
       payment_signature: e.payment?.signature ?? null,
     })),

@@ -5,6 +5,8 @@ import { Store } from "./store";
 import { Accounts } from "./accounts";
 import { BountyStore } from "./bountyStore";
 import { ensureSeededEscrows } from "./escrowSeed";
+import { Devices } from "./attestation/devices";
+import { fetchRevocations } from "./attestation/android";
 import { ConsoleMailer, ResendMailer } from "./mailer";
 import { SolanaChain } from "./solana/solana-chain";
 import { createWorkerScorer } from "./scorer";
@@ -32,6 +34,13 @@ const mailer = process.env.RESEND_API_KEY && process.env.WRK_MAIL_FROM
 if (mailer instanceof ConsoleMailer) console.warn("RESEND_API_KEY not set: sign-in codes are printed here instead of emailed.");
 
 const bounties = new BountyStore(dataDir);
+const allowedAppCerts = (process.env.WRK_APP_CERT_SHA256 ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+const devices = new Devices(dataDir, { packageName: process.env.WRK_ANDROID_PACKAGE ?? "com.wrk.app", allowedAppCerts });
+if (allowedAppCerts.length === 0) console.warn("WRK_APP_CERT_SHA256 not set: phones can register, but none will count as running the genuine app, so no take is 'attested'.");
+// Google's list of revoked attestation certificates: refreshed in the background; a failed fetch just keeps the last one.
+const refreshRevocations = () => fetchRevocations().then((r) => { devices.revoked = r; }).catch(() => undefined);
+void refreshRevocations();
+setInterval(refreshRevocations, 6 * 3600_000).unref();
 if (chain) {
   const secret = Uint8Array.from(JSON.parse(readFileSync(process.env.WRK_TREASURY_KEYPAIR!, "utf8")));
   // In the background: tasks appear to contributors as their vaults finish opening.
@@ -41,6 +50,8 @@ if (chain) {
 createHttpServer({
   accounts: new Accounts(dataDir, mailer),
   bounties,
+  devices,
+  requireDevice: process.env.WRK_REQUIRE_DEVICE === "1",
   store,
   chain,
   score: createWorkerScorer(),
