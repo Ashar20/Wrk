@@ -45,12 +45,13 @@ class SubmissionService(private val context: Context, private val c: WrkContaine
         val hash = (manifest.map["manifest_hash"] as com.wrk.app.episode.JsonStr).value
         return when (val r = c.api.anchorTx(st.bountyId, id, hash, account.address)) {
             AnchorTxResult.NotNeeded -> {
+                android.util.Log.i("WrkApprove", "validator needs no on-chain record")
                 c.episodes.update(id) { it.copy(anchorSignature = "not-required", error = null, waiting = false) }
                 UploadWorker.enqueue(context, id); null
             }
-            is AnchorTxResult.Refused -> r.message
-            is AnchorTxResult.Retry -> r.message
-            is AnchorTxResult.Ready -> when (val sent = c.wallet.signAndSend(sender, r.tx)) {
+            is AnchorTxResult.Refused -> { android.util.Log.w("WrkApprove", "validator refused: ${r.message}"); r.message }
+            is AnchorTxResult.Retry -> { android.util.Log.w("WrkApprove", "couldn't get a transaction: ${r.message}"); r.message }
+            is AnchorTxResult.Ready -> when (val sent = c.wallet.signAndSend(sender, r.tx).also { android.util.Log.i("WrkApprove", "wallet answered: $it") }) {
                 is SendResult.Sent -> {
                     c.episodes.update(id) { it.copy(anchorSignature = sent.signature, error = null, waiting = false) }
                     UploadWorker.enqueue(context, id); null

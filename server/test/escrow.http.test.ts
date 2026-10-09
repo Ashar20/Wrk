@@ -216,13 +216,29 @@ describe("money moves only through the task's escrow", () => {
     expect((await anchorReq({ contributor: "not-an-address" })).status).toBe(400);
   });
 
-  it("caps how many unfinished takes one address can hold open, and refuses to issue the same take twice", async () => {
+  it("caps how many unfinished takes one address can hold open", async () => {
     const who = wallet();
     for (let i = 0; i < 3; i++) expect((await anchorReq({ contributor: who })).status).toBe(200);
     expect((await anchorReq({ contributor: who })).status).toBe(429);
-    const id = epId();
-    expect((await anchorReq({ episode_id: id })).status).toBe(200);
-    expect((await anchorReq({ episode_id: id })).status).toBe(409);
+  });
+
+  it("gives the same person a fresh transaction when they ask again for the same take, and nobody else", async () => {
+    const who = wallet(); const id = epId(); const hash = "0x" + "cd".repeat(32);
+    const first = await anchorReq({ episode_id: id, contributor: who, manifest_hash: hash });
+    expect(first.status).toBe(200);
+    // they cancelled in the wallet and tapped Approve again; at the cap, a retry must still work
+    for (let i = 0; i < 2; i++) expect((await anchorReq({ contributor: who })).status).toBe(200);
+    expect((await anchorReq({ contributor: who })).status).toBe(429); // a fourth take is over the cap...
+    expect((await anchorReq({ episode_id: id, contributor: who, manifest_hash: hash })).status).toBe(200); // ...but the first can retry
+    expect((await anchorReq({ episode_id: id, contributor: wallet(), manifest_hash: hash })).status).toBe(409); // someone else can't
+    expect((await anchorReq({ episode_id: id, contributor: who, manifest_hash: "0x" + "ee".repeat(32) })).status).toBe(409); // a different take can't
+  });
+
+  it("won't issue a transaction for a take that has already been uploaded", async () => {
+    const who = wallet(); const id = epId();
+    const u = await upload("bounty_004", who, { id });
+    await settled(u.id);
+    expect((await anchorReq({ episode_id: id, contributor: who })).status).toBe(409);
   });
 
   it("frees reservations for transactions that were issued but never followed by an upload", async () => {

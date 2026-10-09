@@ -118,7 +118,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
   const ISSUED_TTL_MS = 30 * 60_000;
   const MAX_ISSUED_PER_ADDRESS = 3;
   /** Wallet users fetch their on-chain transaction before uploading. Anything never uploaded is released again. */
-  const issued = new Map<string, { ref: EscrowRef; bountyId: string; contributor: string; at: number }>();
+  const issued = new Map<string, { ref: EscrowRef; bountyId: string; contributor: string; hash: string; at: number }>();
   const outstanding = (contributor: string) => [...issued.entries()].filter(([id, i]) => i.contributor === contributor && !store.get(id)).length;
 
   /** Frees the vault reservation of any transaction issued but never followed by an upload. Returns how many it released. */
@@ -215,6 +215,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
       if (req.method === "POST" && url.pathname === "/anchor/tx") {
         if (!chain) return send(res, 501, { error: "On-chain payments are off on this validator." });
         const b = await readJson(req);
+        console.log(`[anchor/tx] request for ${String(b.episode_id ?? "").slice(-8)} on ${String(b.bounty_id ?? "")}`);
         const bounty = bounties.get(String(b.bounty_id ?? ""));
         const episodeId = String(b.episode_id ?? "");
         const hash = String(b.manifest_hash ?? "");
@@ -223,11 +224,16 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         try { validAddress = bs58.decode(contributor).length === 32; } catch { /* not base58 */ }
         if (!bounty || bounty.status !== "open" || !bounty.escrow?.funded) return send(res, 409, { error: "This task isn't open for takes." });
         if (!/^ep_[0-9a-f]{8,64}$/.test(episodeId) || !/^0x[0-9a-f]{64}$/.test(hash) || !validAddress) return send(res, 400, { error: "That request isn't valid." });
-        if (store.get(episodeId) || issued.has(episodeId)) return send(res, 409, { error: "That take already has a transaction." });
-        if (outstanding(contributor) >= MAX_ISSUED_PER_ADDRESS) return send(res, 429, { error: "Finish uploading your other takes first." });
+        if (store.get(episodeId)) return send(res, 409, { error: "That take has already been submitted." });
+        // The same person asking again for the same take (they cancelled, or the wallet failed) gets a fresh transaction;
+        // anyone else, or a different take under the same id, does not.
+        const prior = issued.get(episodeId);
+        if (prior && (prior.contributor !== contributor || prior.hash !== hash)) return send(res, 409, { error: "That take already has a transaction." });
+        if (!prior && outstanding(contributor) >= MAX_ISSUED_PER_ADDRESS) return send(res, 429, { error: "Finish uploading your other takes first." });
         const ref = escrowRef(bounty)!;
         const tx = await chain.buildAnchorTx({ ref, episodeId, manifestHash: hash, contributor });
-        issued.set(episodeId, { ref, bountyId: bounty.bounty_id, contributor, at: Date.now() });
+        issued.set(episodeId, { ref, bountyId: bounty.bounty_id, contributor, hash, at: Date.now() });
+        console.log(`[anchor/tx] ${prior ? "re-issued" : "issued"} for ${episodeId} on ${bounty.bounty_id} to ${contributor.slice(0, 6)}…`);
         return send(res, 200, { tx });
       }
 
