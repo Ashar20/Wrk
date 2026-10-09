@@ -59,6 +59,16 @@ class AccountStore(private val kv: KeyValue) {
         get() = kv.get("role")?.let { r -> Role.entries.firstOrNull { it.name == r } }
         set(v) { if (v == null) kv.remove("role") else kv.put("role", v.name) }
 
+    /** This phone's id at the validator, once it has been registered. Independent of who is signed in. */
+    var deviceId: String?
+        get() = kv.get("device_id")
+        set(v) { if (v == null) kv.remove("device_id") else kv.put("device_id", v) }
+
+    /** "attested" or "heuristic": what the validator made of this phone when it registered. */
+    var deviceTrust: String?
+        get() = kv.get("device_trust")
+        set(v) { if (v == null) kv.remove("device_trust") else kv.put("device_trust", v) }
+
     /** Stable random id for this install; becomes the episode's asset id. */
     fun installId(): String = kv.get("install_id") ?: java.util.UUID.randomUUID().toString().replace("-", "").take(12).also { kv.put("install_id", it) }
 

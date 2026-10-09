@@ -73,11 +73,12 @@ class BuyerApi(private val api: JsonApi) {
      * Posts a task. Where the buyer's key is held by Wrk the funds are locked right away ([CreatedTask.tx] is null);
      * a buyer with their own wallet gets a transaction to sign, and the task opens once it lands.
      */
-    suspend fun create(title: String, spec: String, perTakeUsd: Double, takes: Int, humanReview: Boolean): CreatedTask {
+    suspend fun create(title: String, spec: String, perTakeUsd: Double, takes: Int, humanReview: Boolean, verifiedOnly: Boolean = false): CreatedTask {
         val r = api.post(
             "/buyer/bounties",
             JSONObject().put("title", title).put("task_spec", spec).put("per_episode_usdc", perTakeUsd).put("min_episodes", takes)
-                .put("review_policy", if (humanReview) "borderline" else "none"),
+                .put("review_policy", if (humanReview) "borderline" else "none")
+                .put("min_trust_level", if (verifiedOnly) "attested" else "heuristic"),
         )
         val e = r.optJSONObject("escrow")
         return CreatedTask(r.getJSONObject("bounty").getString("bounty_id"), funded = e?.optBoolean("funded", true) ?: true, tx = e?.optString("tx")?.takeIf { it.isNotBlank() })

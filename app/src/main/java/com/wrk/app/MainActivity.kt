@@ -116,6 +116,16 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val start = remember { if (c.accounts.load() == null || c.accounts.role == null) "login" else homeFor(c.accounts.role!!) }
     val activeRole = role ?: Role.Contributor
 
+    // Quietly verify this phone once, so takes can be signed. Failure just means takes are unattested.
+    val phone by produceState<String?>(null) {
+        val st = c.device.ensureRegistered()
+        value = when (st) {
+            com.wrk.app.device.DeviceStatus.Verified -> "Verified"
+            com.wrk.app.device.DeviceStatus.Limited -> "Registered, but not fully verified"
+            is com.wrk.app.device.DeviceStatus.Unavailable -> "Not verified: ${st.reason}"
+        }
+    }
+
     /** Hands a transaction the validator built to the buyer's wallet. Returns a message if it didn't go through. */
     val signAndSend: suspend (String) -> String? = { tx ->
         when (val r = c.wallet.signAndSend(sender, android.util.Base64.decode(tx, android.util.Base64.DEFAULT))) {
@@ -265,6 +275,7 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     onBack = { nav.popBackStack() },
                     role = role,
                     onSwitchRole = { rolesProblem = null; nav.navigate("roles") },
+                    phoneStatus = phone,
                 )
             }
         }

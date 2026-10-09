@@ -14,6 +14,7 @@ data class ReviewItem(
     val motionCorr: Double?,
     val perEpisodeUsd: Double,
     val feeUsd: Double,
+    val trustLevel: String? = null,
 )
 
 data class ReviewHistoryItem(val episodeId: String, val bountyTitle: String, val approved: Boolean, val decidedAt: Long, val feeUsd: Double)
@@ -26,6 +27,7 @@ fun parseReviewItem(o: JSONObject) = ReviewItem(
     durationS = o.optDouble("duration_s", 0.0), plausibility = o.dbl("plausibility"), framing = o.dbl("framing"),
     handsVisiblePercent = o.dbl("hands_visible_percent"), motionCorr = o.dbl("flow_gyro_corr"),
     perEpisodeUsd = o.optDouble("per_episode_usdc", 0.0), feeUsd = o.optDouble("fee_usdc", 0.0),
+    trustLevel = o.optString("trust_level").takeIf { it.isNotBlank() },
 )
 
 class ReviewApi(private val api: JsonApi) {

@@ -2,6 +2,7 @@ package com.wrk.app.upload
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.wrk.app.device.DeviceSignature
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -30,6 +31,8 @@ data class EpisodeView(
     val duplicateOf: String? = null,
     val manifestIntact: Boolean? = null,
     val streamsIntact: Boolean? = null,
+    /** "attested" when the take was signed by a verified phone; otherwise "heuristic". Decided by the validator. */
+    val trustLevel: String? = null,
 )
 
 sealed interface UploadResult {
@@ -39,6 +42,8 @@ sealed interface UploadResult {
     /** The validator refused the bytes; trying again will not change that. */
     data class Refused(val reasons: List<String>) : UploadResult
     data object SignInExpired : UploadResult
+    /** The validator has no record of this phone (it was reset). Register again and retry. */
+    data object DeviceUnknown : UploadResult
 }
 
 /** The server's answer to "give me the transaction that records this take on-chain". */
@@ -53,7 +58,7 @@ sealed interface AnchorTxResult {
 }
 
 interface EpisodeApi {
-    suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?): UploadResult
+    suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?, device: DeviceSignature? = null): UploadResult
     /** Null when the validator can't be reached right now. */
     suspend fun fetch(episodeId: String): EpisodeView?
     /** The aligned flow/gyro traces as JSON text, or null when unavailable. */
@@ -71,11 +76,12 @@ class HttpEpisodeApi(
         .callTimeout(5, TimeUnit.MINUTES).writeTimeout(2, TimeUnit.MINUTES).readTimeout(60, TimeUnit.SECONDS).build(),
 ) : EpisodeApi {
 
-    override suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?): UploadResult =
+    override suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?, device: DeviceSignature?): UploadResult =
         withContext(Dispatchers.IO) {
             val body = MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("manifest", manifestJson)
                 .apply { if (anchorSignature != null) addFormDataPart("anchor_signature", anchorSignature) }
+                .apply { if (device != null) { addFormDataPart("device_id", device.deviceId); addFormDataPart("device_signature", device.signatureB64) } }
                 .addFormDataPart("rgb", "rgb.mp4", rgb.asRequestBody("video/mp4".toMediaType()))
                 .addFormDataPart("imu", "imu.bin", imu.asRequestBody("application/octet-stream".toMediaType()))
                 .build()
@@ -88,6 +94,7 @@ class HttpEpisodeApi(
                     when {
                         r.isSuccessful -> UploadResult.Ok(parse(json))
                         r.code == 401 -> UploadResult.SignInExpired
+                        r.code == 400 && json.optString("error").contains("isn't registered") -> UploadResult.DeviceUnknown
                         r.code == 422 -> UploadResult.Refused(strings(json.optJSONArray("failures")).ifEmpty { listOf("The upload didn't match what was recorded.") })
                         r.code in 400..499 && r.code != 408 && r.code != 429 ->
                             UploadResult.Refused(listOf(json.optString("error").ifBlank { "The upload was refused." }))
@@ -161,6 +168,7 @@ class HttpEpisodeApi(
             duplicateOf = o.optJSONObject("checks")?.let { c -> if (c.isNull("duplicate_of")) null else c.optString("duplicate_of") },
             manifestIntact = o.optJSONObject("checks")?.optBoolean("manifest_intact"),
             streamsIntact = o.optJSONObject("checks")?.optBoolean("streams_intact"),
+            trustLevel = o.optString("trust_level").takeIf { it.isNotBlank() && it != "null" },
         )
     }
 }

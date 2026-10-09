@@ -39,6 +39,8 @@ data class EpisodeState(
     val duplicateOf: String? = null,
     val manifestIntact: Boolean? = null,
     val streamsIntact: Boolean? = null,
+    /** "attested" or "heuristic", as decided by the validator. */
+    val trustLevel: String? = null,
     /** Whether the live prediction strip has reached the server. */
     val predictionsSent: Boolean = false,
     /** Cost and health of the live hand overlay while recording. */
@@ -56,7 +58,7 @@ data class EpisodeState(
         .put("handsVisiblePercent", handsVisiblePercent ?: JSONObject.NULL).put("motionCorr", motionCorr ?: JSONObject.NULL)
         .put("validatorScore", validatorScore ?: JSONObject.NULL).put("duplicateOf", duplicateOf ?: JSONObject.NULL)
         .put("manifestIntact", manifestIntact ?: JSONObject.NULL).put("streamsIntact", streamsIntact ?: JSONObject.NULL)
-        .put("predictionsSent", predictionsSent).put("overlay", overlay?.toJson() ?: JSONObject.NULL)
+        .put("trustLevel", trustLevel ?: JSONObject.NULL).put("predictionsSent", predictionsSent).put("overlay", overlay?.toJson() ?: JSONObject.NULL)
 
     companion object {
         fun fromJson(o: JSONObject) = EpisodeState(
@@ -71,7 +73,7 @@ data class EpisodeState(
             handsVisiblePercent = o.optDoubleOrNull("handsVisiblePercent"), motionCorr = o.optDoubleOrNull("motionCorr"),
             validatorScore = o.optDoubleOrNull("validatorScore"), duplicateOf = o.optStringOrNull("duplicateOf"),
             manifestIntact = o.optBooleanOrNull("manifestIntact"), streamsIntact = o.optBooleanOrNull("streamsIntact"),
-            predictionsSent = o.optBoolean("predictionsSent"),
+            trustLevel = o.optStringOrNull("trustLevel"), predictionsSent = o.optBoolean("predictionsSent"),
             overlay = if (o.isNull("overlay")) null else o.optJSONObject("overlay")?.let { OverlayStats.fromJson(it) },
         )
         private fun JSONObject.optStringOrNull(k: String) = if (!has(k) || isNull(k)) null else getString(k)

@@ -236,6 +236,7 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
     var pay by remember { mutableStateOf("0.60") }
     var takes by remember { mutableStateOf("50") }
     var review by remember { mutableStateOf(false) }
+    var verifiedOnly by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
 
@@ -257,6 +258,11 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
                 WrkTextField(pay, { pay = it.filter { c -> c.isDigit() || c == '.' }.take(6) }, "0.60", keyboardType = KeyboardType.Decimal)
                 Tag("How many takes")
                 WrkTextField(takes, { takes = it.filter(Char::isDigit).take(4) }, "50", keyboardType = KeyboardType.Number)
+                Tag("Who can take part")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("Any phone", !verifiedOnly) { verifiedOnly = false }
+                    Chip("Only verified phones", verifiedOnly) { verifiedOnly = true }
+                }
                 Tag("Close calls")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Chip("Checked automatically", !review) { review = false }
@@ -281,7 +287,7 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
             scope.launch {
                 busy = true; problem = null
                 try {
-                    val t = api.create(title.trim(), spec.trim(), perTake, count, review)
+                    val t = api.create(title.trim(), spec.trim(), perTake, count, review, verifiedOnly)
                     if (!t.funded && t.tx != null) {
                         problem = fundTask(api, t.id, t.tx, onSignAndSend)
                         // Posted either way: if funding didn't finish, it's on the dashboard with a "Finish funding" button.

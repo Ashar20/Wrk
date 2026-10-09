@@ -1,5 +1,7 @@
 package com.wrk.app.upload
 
+import com.wrk.app.device.DeviceSignature
+import com.wrk.app.device.DeviceSigner
 import com.wrk.app.episode.EpisodeState
 import com.wrk.app.episode.EpisodeStatus
 import com.wrk.app.episode.EpisodeStore
@@ -17,6 +19,7 @@ private class FakeApi : EpisodeApi {
     var uploads = 0
     var lastBearer: String? = "unset"
     var lastAnchor: String? = "unset"
+    var lastDevice: DeviceSignature? = null
     var uploadResult: UploadResult = UploadResult.Ok(view("scoring"))
     val fetches = ArrayDeque<EpisodeView?>()
     var tracesJson: String? = """[{"t":0,"flowYaw":0.5,"gyroYaw":0.4,"flowPitch":0.1,"gyroPitch":0.2}]"""
@@ -25,8 +28,8 @@ private class FakeApi : EpisodeApi {
     var predictionsOk = true
     override suspend fun traces(episodeId: String): String? { traceFetches++; return tracesJson }
     override suspend fun uploadPredictions(episodeId: String, json: String): Boolean { predictionUploads++; return predictionsOk }
-    override suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?): UploadResult {
-        uploads++; lastBearer = bearer; lastAnchor = anchorSignature; return uploadResult
+    override suspend fun upload(manifestJson: String, rgb: File, imu: File, anchorSignature: String?, bearer: String?, device: DeviceSignature?): UploadResult {
+        uploads++; lastBearer = bearer; lastAnchor = anchorSignature; lastDevice = device; return uploadResult
     }
     override suspend fun fetch(episodeId: String) = fetches.removeFirstOrNull()
 }
@@ -38,12 +41,18 @@ class SubmissionProcessorTest {
     @get:Rule val tmp = TemporaryFolder()
     private lateinit var store: EpisodeStore
     private val api = FakeApi()
-    private fun processor(token: String? = "tok") = SubmissionProcessor(store, api, { token }, pause = {}, maxPolls = 5)
+    private class FakeSigner(var signature: DeviceSignature? = DeviceSignature("dev1", "c2ln")) : DeviceSigner {
+        var signed = mutableListOf<Pair<String, String>>(); var resets = 0
+        override suspend fun sign(episodeId: String, manifestHash: String): DeviceSignature? { signed += episodeId to manifestHash; return signature }
+        override suspend fun reset() { resets++ }
+    }
+    private val signer = FakeSigner()
+    private fun processor(token: String? = "tok", s: DeviceSigner? = signer) = SubmissionProcessor(store, api, { token }, signer = s, pause = {}, maxPolls = 5)
 
     @Before fun setUp() {
         store = EpisodeStore(tmp.newFolder())
         val d = store.begin("ep1")
-        File(d, "manifest.json").writeText("""{"contributor":"Addr","episode_id":"ep1"}""")
+        File(d, "manifest.json").writeText("""{"contributor":"Addr","episode_id":"ep1","manifest_hash":"0xabc"}""")
         File(d, "rgb.mp4").writeBytes(byteArrayOf(1)); File(d, "imu.bin").writeBytes(byteArrayOf(2))
         store.write("ep1", EpisodeState(bountyId = "b", bountyTitle = "Cup", perEpisodeUsd = 0.6, createdAt = 1, anchorSignature = "sig"))
     }
@@ -201,5 +210,40 @@ class SubmissionProcessorTest {
         processor().process("ep1")
         val s = store.state("ep1")!!
         assertEquals(EpisodeStatus.Rejected, s.status); assertTrue(s.reasons.single().contains("reviewer"))
+    }
+
+    @Test fun everyTakeIsSignedByThePhoneBeforeItGoesUp() = runTest {
+        api.fetches += view("scored", false, listOf("x"))
+        processor().process("ep1")
+        assertEquals(listOf("ep1" to "0xabc"), signer.signed)
+        assertEquals(DeviceSignature("dev1", "c2ln"), api.lastDevice)
+    }
+
+    @Test fun aPhoneWithNoKeyStillUploadsJustUnattested() = runTest {
+        signer.signature = null
+        api.fetches += view("scored", false, listOf("x"))
+        processor().process("ep1")
+        assertEquals(null, api.lastDevice); assertEquals(1, api.uploads)
+    }
+
+    @Test fun anOlderBuildWithNoSignerStillWorks() = runTest {
+        api.fetches += view("scored", false, listOf("x"))
+        processor(s = null).process("ep1")
+        assertEquals(null, api.lastDevice); assertEquals(1, api.uploads)
+    }
+
+    @Test fun aValidatorThatForgotThePhoneMakesItRegisterAgainAndRetry() = runTest {
+        api.uploadResult = UploadResult.DeviceUnknown
+        assertEquals(ProcessOutcome.TryAgain, processor().process("ep1"))
+        assertEquals(1, signer.resets)
+        assertEquals(EpisodeStatus.NotSubmitted, store.state("ep1")!!.status) // the take is kept, nothing is lost
+        assertTrue(File(store.dir("ep1"), "rgb.mp4").exists())
+    }
+
+    @Test fun theValidatorsTrustLevelIsKeptForTheResultScreen() = runTest {
+        store.update("ep1") { it.copy(status = EpisodeStatus.Validating) }
+        api.fetches += EpisodeView("scored", true, emptyList(), "p", 0.6, null, null, trustLevel = "attested", manifestIntact = true)
+        processor().process("ep1")
+        assertEquals("attested", store.state("ep1")!!.trustLevel)
     }
 }

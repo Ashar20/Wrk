@@ -280,10 +280,10 @@ private fun DetailsCard(s: EpisodeState, manifest: JsonObj?) {
                     Row("Duplicate of", s.duplicateOf ?: "none", warn = s.duplicateOf != null)
                     Row("Validator score", s.validatorScore?.toString() ?: "—")
                 }
-                Row("Trust level", "heuristic", last = true)
+                Row("Trust level", s.trustLevel ?: "heuristic", last = true)
             }
             Text(
-                "Scored on the server from the bytes it received. Heuristic means these checks measure whether a capture is plausible, not whether it is genuine. Nothing here is attested by the hardware.",
+                "Scored on the server from the bytes it received. These checks measure whether a capture is plausible, not whether the scene was real. Attested means the take was signed by a verified phone's secure hardware key; heuristic means it wasn't.",
                 style = WrkType.label.copy(fontSize = 12.sp, lineHeight = 17.sp), color = WrkColors.subtle,
                 modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp),
             )

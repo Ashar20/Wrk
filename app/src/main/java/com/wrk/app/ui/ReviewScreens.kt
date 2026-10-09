@@ -112,6 +112,7 @@ fun ReviewDetailScreen(item: ReviewItem, api: ReviewApi, onDone: () -> Unit, onB
         PaperButton("Back", onBack)
         Text(item.bountyTitle, style = WrkType.title, color = WrkColors.foreground)
         Text(item.taskSpec, style = WrkType.body, color = WrkColors.muted)
+        Tag(if (item.trustLevel == "attested") "Signed by a verified phone" else "Phone not verified")
 
         AndroidView(
             factory = { ctx ->

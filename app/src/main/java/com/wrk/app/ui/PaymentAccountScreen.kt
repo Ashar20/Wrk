@@ -54,6 +54,8 @@ fun PaymentAccountScreen(
     onboarding: Boolean = false,
     role: com.wrk.app.account.Role? = null,
     onSwitchRole: (() -> Unit)? = null,
+    /** How this phone stands with the validator, e.g. "Verified". Null while unknown. */
+    phoneStatus: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
@@ -83,6 +85,15 @@ fun PaymentAccountScreen(
             role?.let { r ->
                 PaperCard(Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Tag("You're using Wrk as"); Text(r.label, style = WrkType.title, color = WrkColors.foreground) }
+                }
+            }
+            phoneStatus?.let { st ->
+                PaperCard(Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Tag("This phone")
+                        Text(st, style = WrkType.title, color = WrkColors.foreground)
+                        Tag("A verified phone gets a bigger daily allowance and can join tasks that need one.")
+                    }
                 }
             }
             if (onSwitchRole != null) PaperButton("Switch role", onSwitchRole, Modifier.fillMaxWidth())

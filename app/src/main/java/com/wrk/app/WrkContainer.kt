@@ -4,7 +4,10 @@ import android.content.Context
 import com.wrk.app.account.Account
 import com.wrk.app.account.AccountStore
 import com.wrk.app.account.EncryptedKeyValue
+import com.wrk.app.device.DeviceApi
+import com.wrk.app.device.DeviceKey
 import com.wrk.app.episode.EpisodeStore
+import com.wrk.app.roles.JsonApi
 import com.wrk.app.upload.EpisodeApi
 import com.wrk.app.upload.HttpEpisodeApi
 import com.wrk.app.upload.SubmissionProcessor
@@ -28,6 +31,8 @@ class WrkContainer private constructor(private val app: Context) {
     val episodes = EpisodeStore(File(app.filesDir, "episodes"))
     val api: EpisodeApi = HttpEpisodeApi(BuildConfig.API_BASE)
     val wallet = WalletManager(accounts)
+    /** This phone's hardware key and its standing with the validator. */
+    val device = DeviceKey(accounts, DeviceApi(JsonApi(BuildConfig.API_BASE, { null })))
 
     /** Survives navigation between capture and review; deliberately not persisted (the video already is). */
     @Volatile var pending: PendingCapture? = null
@@ -37,7 +42,7 @@ class WrkContainer private constructor(private val app: Context) {
     fun processor() = SubmissionProcessor(episodes, api, bearerFor = { contributor ->
         // Only an email session for this very payment account may speak for it.
         (accounts.load() as? Account.Email)?.takeIf { it.address == contributor }?.token
-    })
+    }, signer = device)
 
     companion object {
         @Volatile private var instance: WrkContainer? = null

@@ -90,6 +90,7 @@ fun SubmissionScreen(
                         Text("You earned", style = WrkType.label, color = WrkColors.onInkMuted)
                         Figure(s.paidUsd, WrkType.figureHero, WrkColors.onInk)
                         Text("Paid to your payment account", style = WrkType.body, color = WrkColors.onInkMuted)
+                        if (s.trustLevel == "attested") Text("Signed by a verified phone", style = WrkType.label, color = WrkColors.onInkMuted)
                     }
                 }
                 s.paymentSignature?.let { sig ->

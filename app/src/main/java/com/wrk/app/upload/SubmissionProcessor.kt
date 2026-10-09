@@ -1,5 +1,6 @@
 package com.wrk.app.upload
 
+import com.wrk.app.device.DeviceSigner
 import com.wrk.app.episode.EpisodeStatus
 import com.wrk.app.episode.EpisodeStore
 import kotlinx.coroutines.delay
@@ -23,6 +24,8 @@ class SubmissionProcessor(
     private val api: EpisodeApi,
     /** The sign-in token valid for the manifest's contributor, or null (wallet users). */
     private val bearerFor: (contributor: String) -> String?,
+    /** Signs each take with this phone's hardware key, when it has one. */
+    private val signer: DeviceSigner? = null,
     private val pause: suspend (Long) -> Unit = { delay(it) },
     private val pollMs: Long = 3_000,
     private val maxPolls: Int = 60,
@@ -33,7 +36,7 @@ class SubmissionProcessor(
             it.copy(
                 framing = v.framing, plausibility = v.plausibility, handsVisiblePercent = v.handsVisiblePercent,
                 motionCorr = v.motionCorr, validatorScore = v.validatorScore, duplicateOf = v.duplicateOf,
-                manifestIntact = v.manifestIntact, streamsIntact = v.streamsIntact,
+                manifestIntact = v.manifestIntact, streamsIntact = v.streamsIntact, trustLevel = v.trustLevel,
             )
         }
         val f = File(store.dir(id), "traces.json")
@@ -56,7 +59,10 @@ class SubmissionProcessor(
             val dir = store.dir(id)
             val manifest = File(dir, "manifest.json").readText()
             val contributor = store.manifest(id)?.map?.get("contributor")?.let { (it as com.wrk.app.episode.JsonStr).value }.orEmpty()
-            when (val r = api.upload(manifest, File(dir, "rgb.mp4"), File(dir, "imu.bin"), st.anchorSignature, bearerFor(contributor))) {
+            val hash = (store.manifest(id)?.map?.get("manifest_hash") as? com.wrk.app.episode.JsonStr)?.value
+            val device = if (signer != null && hash != null) signer.sign(id, hash) else null
+            when (val r = api.upload(manifest, File(dir, "rgb.mp4"), File(dir, "imu.bin"), st.anchorSignature, bearerFor(contributor), device)) {
+                UploadResult.DeviceUnknown -> { signer?.reset(); store.update(id) { it.copy(waiting = true) }; return ProcessOutcome.TryAgain }
                 is UploadResult.Ok -> st = store.update(id) { it.copy(status = EpisodeStatus.Validating, waiting = false, error = null) }
                 is UploadResult.Retry -> { store.update(id) { it.copy(waiting = true) }; return ProcessOutcome.TryAgain }
                 is UploadResult.Refused -> {

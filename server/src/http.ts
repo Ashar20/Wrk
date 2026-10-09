@@ -180,7 +180,10 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         if (!devices) return send(res, 501, { error: "Device checks are off on this validator." });
         const b = await readJson(req, 40_000);
         const chain = Array.isArray(b.chain) ? b.chain.map(String).slice(0, 8) : [];
-        const r = devices.register(String(b.challenge ?? ""), chain);
+        let r;
+        try { r = devices.register(String(b.challenge ?? ""), chain); }
+        catch (e) { if (e instanceof DeviceError && e.failures.length) console.warn(`[device] registration refused: ${e.failures.join("; ")}`); throw e; }
+        if (!r.device.fully_attested) console.warn(`[device] ${r.device.id} registered, not fully attested (level ${r.device.level}, boot verified ${r.device.boot_verified}, app verified ${r.device.app_verified}; app certs seen: ${r.appCertDigests.join(",")})`);
         return send(res, 200, {
           device_id: r.device.id,
           trust: r.device.fully_attested ? "attested" : "heuristic",
