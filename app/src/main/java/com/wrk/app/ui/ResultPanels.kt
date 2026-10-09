@@ -286,7 +286,8 @@ private fun DetailsCard(s: EpisodeState, manifest: JsonObj?) {
                     Row("Duplicate of", s.duplicateOf ?: "none", warn = s.duplicateOf != null)
                     Row("Validator score", s.validatorScore?.toString() ?: "—")
                 }
-                Row("Trust level", s.trustLevel ?: "heuristic", last = true)
+                Row("Trust level", s.trustLevel ?: "heuristic")
+                Row("Trust score", s.sybilScore?.let { "$it / 100" } ?: "—", last = true)
             }
             Text(
                 "Scored on the server from the bytes it received. These checks measure whether a capture is plausible, not whether the scene was real. Attested means the take was signed by a verified phone's secure hardware key; heuristic means it wasn't.",

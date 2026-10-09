@@ -56,6 +56,8 @@ fun PaymentAccountScreen(
     onSwitchRole: (() -> Unit)? = null,
     /** How this phone stands with the validator, e.g. "Verified". Null while unknown. */
     phoneStatus: String? = null,
+    trust: com.wrk.app.trust.TrustReport? = null,
+    onLiveCheck: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
@@ -96,6 +98,7 @@ fun PaymentAccountScreen(
                     }
                 }
             }
+            if (phoneStatus != null || trust != null) TrustCard(trust, onLiveCheck)
             if (onSwitchRole != null) PaperButton("Switch role", onSwitchRole, Modifier.fillMaxWidth())
             PaperButton("Switch account", onSignOut, Modifier.fillMaxWidth())
             return@Column

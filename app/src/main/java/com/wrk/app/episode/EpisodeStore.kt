@@ -42,6 +42,8 @@ data class EpisodeState(
     /** "attested" or "heuristic", as decided by the validator. */
     val trustLevel: String? = null,
     /** For tasks with a live check: movements that showed up, out of those asked. Null when the task has none. */
+    /** The contributor's trust score (0 to 100) the last time the validator looked. */
+    val sybilScore: Int? = null,
     val liveMatched: Int? = null,
     val liveTotal: Int? = null,
     val livePassed: Boolean? = null,
@@ -62,7 +64,7 @@ data class EpisodeState(
         .put("handsVisiblePercent", handsVisiblePercent ?: JSONObject.NULL).put("motionCorr", motionCorr ?: JSONObject.NULL)
         .put("validatorScore", validatorScore ?: JSONObject.NULL).put("duplicateOf", duplicateOf ?: JSONObject.NULL)
         .put("manifestIntact", manifestIntact ?: JSONObject.NULL).put("streamsIntact", streamsIntact ?: JSONObject.NULL)
-        .put("trustLevel", trustLevel ?: JSONObject.NULL).put("liveMatched", liveMatched ?: JSONObject.NULL).put("liveTotal", liveTotal ?: JSONObject.NULL).put("livePassed", livePassed ?: JSONObject.NULL).put("predictionsSent", predictionsSent).put("overlay", overlay?.toJson() ?: JSONObject.NULL)
+        .put("trustLevel", trustLevel ?: JSONObject.NULL).put("sybilScore", sybilScore ?: JSONObject.NULL).put("liveMatched", liveMatched ?: JSONObject.NULL).put("liveTotal", liveTotal ?: JSONObject.NULL).put("livePassed", livePassed ?: JSONObject.NULL).put("predictionsSent", predictionsSent).put("overlay", overlay?.toJson() ?: JSONObject.NULL)
 
     companion object {
         fun fromJson(o: JSONObject) = EpisodeState(
@@ -77,7 +79,7 @@ data class EpisodeState(
             handsVisiblePercent = o.optDoubleOrNull("handsVisiblePercent"), motionCorr = o.optDoubleOrNull("motionCorr"),
             validatorScore = o.optDoubleOrNull("validatorScore"), duplicateOf = o.optStringOrNull("duplicateOf"),
             manifestIntact = o.optBooleanOrNull("manifestIntact"), streamsIntact = o.optBooleanOrNull("streamsIntact"),
-            trustLevel = o.optStringOrNull("trustLevel"), liveMatched = o.optIntOrNull("liveMatched"), liveTotal = o.optIntOrNull("liveTotal"), livePassed = o.optBooleanOrNull("livePassed"), predictionsSent = o.optBoolean("predictionsSent"),
+            trustLevel = o.optStringOrNull("trustLevel"), sybilScore = o.optIntOrNull("sybilScore"), liveMatched = o.optIntOrNull("liveMatched"), liveTotal = o.optIntOrNull("liveTotal"), livePassed = o.optBooleanOrNull("livePassed"), predictionsSent = o.optBoolean("predictionsSent"),
             overlay = if (o.isNull("overlay")) null else o.optJSONObject("overlay")?.let { OverlayStats.fromJson(it) },
         )
         private fun JSONObject.optStringOrNull(k: String) = if (!has(k) || isNull(k)) null else getString(k)

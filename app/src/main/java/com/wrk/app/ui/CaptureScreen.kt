@@ -296,7 +296,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.Viewfinder(
                         val raw = controller.record(file, maxMs) { ms ->
                             elapsedMs = ms; elapsedForHands = ms
                             phase = Phase.Recording(ms)
-                            val noHands = analysisOn && ms > 1_500 && ms - lastHandsAtMs > 1_500
+                            val noHands = analysisOn && bounty.id != "liveness_check" && ms > 1_500 && ms - lastHandsAtMs > 1_500
                             coaching = when {
                                 ms > maxMs - 2_000 -> null
                                 noHands -> "Tilt the phone down so your hands are in view"

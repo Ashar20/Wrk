@@ -66,6 +66,10 @@ import com.wrk.app.ui.ReviewQueueScreen
 import com.wrk.app.ui.ReviewScreen
 import com.wrk.app.ui.RoleChooserScreen
 import com.wrk.app.ui.SubmissionScreen
+import com.wrk.app.trust.TrustApi
+import com.wrk.app.ui.LiveCheckRunScreen
+import com.wrk.app.ui.LiveCheckTask
+import com.wrk.app.upload.LiveCheckService
 import com.wrk.app.upload.SubmissionService
 import com.wrk.app.wallet.WalletResult
 import kotlinx.coroutines.delay
@@ -110,6 +114,8 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val auth = remember { AuthApi(BuildConfig.API_BASE) }
     val sessions = remember { SessionService(auth, c.wallet) }
     val service = remember { SubmissionService(context.applicationContext, c) }
+    val liveService = remember { LiveCheckService(c) }
+    val trustApi = remember { TrustApi(JsonApi(BuildConfig.API_BASE, { null })) }
     // The store is the source of truth for the session, so every call sees a fresh token.
     val json = remember { JsonApi(BuildConfig.API_BASE, { c.accounts.load()?.sessionToken }) }
     val reviewApi = remember { ReviewApi(json) }
@@ -283,7 +289,28 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     },
                 )
             }
+            composable("livecheck") {
+                CaptureScreen(
+                    LiveCheckTask, c,
+                    onCaptured = { c.pending = it; nav.navigate("livecheck/run") { popUpTo("livecheck") { inclusive = true } } },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            composable("livecheck/run") {
+                val p = c.pending
+                val a = account
+                if (p == null || a == null) LaunchedEffect(Unit) { nav.popBackStack("account", false) }
+                else LiveCheckRunScreen(
+                    pending = p, account = a, service = liveService,
+                    onTryAgain = { nav.navigate("livecheck") { popUpTo("account") } },
+                    onDone = { nav.popBackStack("account", false) },
+                )
+            }
             composable("account") {
+                // Re-read the score whenever this screen is shown and every few seconds after, so a live check shows up at once.
+                val myTrust by produceState<com.wrk.app.trust.TrustReport?>(null, account?.address) {
+                    while (true) { value = account?.address?.let { trustApi.get(it) } ?: value; delay(6_000) }
+                }
                 PaymentAccountScreen(
                     current = account,
                     auth = auth,
@@ -300,6 +327,8 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     role = role,
                     onSwitchRole = { rolesProblem = null; nav.navigate("roles") },
                     phoneStatus = phone,
+                    trust = myTrust,
+                    onLiveCheck = { nav.navigate("livecheck") },
                 )
             }
         }

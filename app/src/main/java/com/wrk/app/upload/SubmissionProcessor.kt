@@ -36,7 +36,7 @@ class SubmissionProcessor(
             it.copy(
                 framing = v.framing, plausibility = v.plausibility, handsVisiblePercent = v.handsVisiblePercent,
                 motionCorr = v.motionCorr, validatorScore = v.validatorScore, duplicateOf = v.duplicateOf,
-                manifestIntact = v.manifestIntact, streamsIntact = v.streamsIntact, trustLevel = v.trustLevel,
+                manifestIntact = v.manifestIntact, streamsIntact = v.streamsIntact, trustLevel = v.trustLevel, sybilScore = v.sybilScore,
                 liveMatched = v.liveness?.matched, liveTotal = v.liveness?.total, livePassed = v.liveness?.passed,
             )
         }

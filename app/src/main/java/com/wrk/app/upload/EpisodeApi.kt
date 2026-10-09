@@ -3,6 +3,8 @@ package com.wrk.app.upload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.wrk.app.device.DeviceSignature
+import com.wrk.app.trust.LiveVerify
+import com.wrk.app.trust.parseTrust
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -35,6 +37,8 @@ data class EpisodeView(
     val trustLevel: String? = null,
     /** Present only for tasks with a live check. */
     val liveness: LiveResult? = null,
+    /** The contributor's trust score (0 to 100) when the take was last looked at. */
+    val sybilScore: Int? = null,
 )
 
 /** How many of the head movements asked for showed up in both the video and the phone's motion. */
@@ -68,6 +72,9 @@ interface EpisodeApi {
     suspend fun fetch(episodeId: String): EpisodeView?
     /** The aligned flow/gyro traces as JSON text, or null when unavailable. */
     suspend fun traces(episodeId: String): String? = null
+    /** A standalone live check: the recording and its prompts, signed by this phone. Not a take; nothing is paid. */
+    suspend fun verifyLive(manifestJson: String, rgb: File, imu: File, device: DeviceSignature?): LiveVerify = LiveVerify.Retry("Live checks aren't available.")
+
     /** The transaction a wallet signs to record a take in its task's escrow. Fees and rent are covered by Wrk. */
     suspend fun anchorTx(bountyId: String, episodeId: String, manifestHash: String, contributor: String): AnchorTxResult = AnchorTxResult.NotNeeded
 
@@ -117,6 +124,27 @@ class HttpEpisodeApi(
                 if (!r.isSuccessful) null else parse(JSONObject(r.body!!.string()))
             }
         } catch (e: Exception) { null }
+    }
+
+    override suspend fun verifyLive(manifestJson: String, rgb: File, imu: File, device: DeviceSignature?): LiveVerify = withContext(Dispatchers.IO) {
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("manifest", manifestJson)
+            .apply { if (device != null) { addFormDataPart("device_id", device.deviceId); addFormDataPart("device_signature", device.signatureB64) } }
+            .addFormDataPart("rgb", "rgb.mp4", rgb.asRequestBody("video/mp4".toMediaType()))
+            .addFormDataPart("imu", "imu.bin", imu.asRequestBody("application/octet-stream".toMediaType()))
+            .build()
+        try {
+            client.newCall(Request.Builder().url("$baseUrl/liveness/verify").post(body).build()).execute().use { r ->
+                val json = runCatching { JSONObject(r.body?.string().orEmpty()) }.getOrDefault(JSONObject())
+                when {
+                    r.isSuccessful -> LiveVerify.Done(json.optBoolean("passed"), json.optInt("matched"), json.optInt("total"), json.optJSONObject("trust")?.let { runCatching { parseTrust(it) }.getOrNull() })
+                    r.code == 429 || r.code >= 500 -> LiveVerify.Retry(json.optString("error").ifBlank { "Wrk had a problem. Try again in a moment." })
+                    else -> LiveVerify.Refused(json.optString("error").ifBlank { "The live check couldn't be accepted." })
+                }
+            }
+        } catch (e: IOException) {
+            LiveVerify.Retry("Couldn't reach Wrk. Check your connection and try again.")
+        }
     }
 
     override suspend fun anchorTx(bountyId: String, episodeId: String, manifestHash: String, contributor: String): AnchorTxResult =
@@ -174,6 +202,7 @@ class HttpEpisodeApi(
             manifestIntact = o.optJSONObject("checks")?.optBoolean("manifest_intact"),
             streamsIntact = o.optJSONObject("checks")?.optBoolean("streams_intact"),
             trustLevel = o.optString("trust_level").takeIf { it.isNotBlank() && it != "null" },
+            sybilScore = if (o.isNull("sybil_score") || !o.has("sybil_score")) null else o.optInt("sybil_score"),
             liveness = o.optJSONObject("liveness")?.let { LiveResult(it.optBoolean("passed"), it.optInt("matched"), it.optInt("total")) },
         )
     }
