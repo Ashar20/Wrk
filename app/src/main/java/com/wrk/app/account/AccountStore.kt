@@ -59,6 +59,13 @@ class AccountStore(private val kv: KeyValue) {
         get() = kv.get("role")?.let { r -> Role.entries.firstOrNull { it.name == r } }
         set(v) { if (v == null) kv.remove("role") else kv.put("role", v.name) }
 
+    /** What the person likes to be called here. Kept on this phone, and per account so switching accounts never carries a name over. */
+    fun displayName(address: String): String? = kv.get("display_name:$address")
+
+    fun setDisplayName(address: String, name: String?) {
+        if (name.isNullOrBlank()) kv.remove("display_name:$address") else kv.put("display_name:$address", name)
+    }
+
     /** This phone's id at the validator, once it has been registered. Independent of who is signed in. */
     var deviceId: String?
         get() = kv.get("device_id")

@@ -98,7 +98,6 @@ fun PaymentAccountScreen(
                     }
                 }
             }
-            if (phoneStatus != null || trust != null) TrustCard(trust, onLiveCheck)
             if (onSwitchRole != null) PaperButton("Switch role", onSwitchRole, Modifier.fillMaxWidth())
             PaperButton("Switch account", onSignOut, Modifier.fillMaxWidth())
             return@Column

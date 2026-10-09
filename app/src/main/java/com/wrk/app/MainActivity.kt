@@ -170,11 +170,11 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     Column(Modifier.fillMaxSize().background(WrkColors.bone).statusBarsPadding()) {
         // Who you are right now, on every screen: tap it to switch account or role.
         val who = account
-        if (who != null && route != null && route !in setOf("login", "account", "roles", "capture/{id}")) {
+        if (who != null && route != null && route !in setOf("login", "account", "roles", "profile", "capture/{id}")) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
                 Box(
                     Modifier.clip(RoundedCornerShape(50)).background(WrkColors.paper)
-                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { nav.navigate("account") }
+                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { nav.navigate("profile") }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 ) { Text("${who.label} · ${activeRole.label}", style = WrkType.label.copy(fontSize = 12.sp), color = WrkColors.muted, maxLines = 1) }
             }
@@ -306,11 +306,27 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     onDone = { nav.popBackStack("account", false) },
                 )
             }
-            composable("account") {
-                // Re-read the score whenever this screen is shown and every few seconds after, so a live check shows up at once.
-                val myTrust by produceState<com.wrk.app.trust.TrustReport?>(null, account?.address) {
-                    while (true) { value = account?.address?.let { trustApi.get(it) } ?: value; delay(6_000) }
+            composable("profile") {
+                val a = account
+                if (a == null) LaunchedEffect(Unit) { nav.navigate("login") { popUpTo(nav.graph.id) { inclusive = true } } }
+                else {
+                    // The score, and the history for whichever role this is, refreshed while the page is open.
+                    val myTrust by produceState<com.wrk.app.trust.TrustReport?>(null, a.address) { while (true) { value = trustApi.get(a.address) ?: value; delay(6_000) } }
+                    val takes by produceState(c.episodes.list()) { while (true) { value = c.episodes.list(); delay(1_500) } }
+                    val reviews by produceState<com.wrk.app.roles.ReviewHistory?>(null, activeRole) { if (activeRole == Role.Verifier) while (true) { value = runCatching { reviewApi.history() }.getOrNull() ?: value; delay(8_000) } }
+                    val tasks by produceState<List<BuyerBounty>?>(null, activeRole) { if (activeRole == Role.Buyer) while (true) { value = runCatching { buyerApi.summary().bounties }.getOrNull() ?: value; delay(8_000) } }
+                    var name by remember(a.address) { mutableStateOf(c.accounts.displayName(a.address) ?: com.wrk.app.profile.defaultName(a)) }
+                    com.wrk.app.ui.ProfileScreen(
+                        account = a, role = activeRole, name = name,
+                        onRename = { n -> c.accounts.setDisplayName(a.address, n); name = n.ifBlank { com.wrk.app.profile.defaultName(a) } },
+                        trust = myTrust, onLiveCheck = { nav.navigate("livecheck") },
+                        takes = takes, reviews = reviews, tasks = tasks,
+                        onOpenTake = { nav.navigate("submission/${it.id}") },
+                        onAccountSettings = { nav.navigate("account") },
+                    )
                 }
+            }
+            composable("account") {
                 PaymentAccountScreen(
                     current = account,
                     auth = auth,
@@ -327,8 +343,6 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     role = role,
                     onSwitchRole = { rolesProblem = null; nav.navigate("roles") },
                     phoneStatus = phone,
-                    trust = myTrust,
-                    onLiveCheck = { nav.navigate("livecheck") },
                 )
             }
         }
