@@ -39,6 +39,15 @@ async function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
 
 const MAX_PREDICTIONS = 120;
 
+/** A take's reported area, rounded to about a kilometre. Null when none was sent; "invalid" when it makes no sense. */
+function readArea(raw: unknown): { lat: number; lon: number; mock: boolean } | null | "invalid" {
+  if (raw === undefined || raw === null) return null;
+  const o = raw as { lat?: unknown; lon?: unknown; mock?: unknown };
+  if (typeof o.lat !== "number" || typeof o.lon !== "number" || !Number.isFinite(o.lat) || !Number.isFinite(o.lon) || Math.abs(o.lat) > 90 || Math.abs(o.lon) > 180) return "invalid";
+  const cell = (v: number) => Math.round(v / 0.01) * 0.01; // the server never keeps more precision than ~1 km
+  return { lat: cell(o.lat), lon: cell(o.lon), mock: o.mock === true };
+}
+
 function parseMultipart(req: IncomingMessage) {
   return new Promise<{ fields: Record<string, string>; files: Record<string, Buffer> }>((resolve, reject) => {
     const fields: Record<string, string> = {};
@@ -82,7 +91,7 @@ export function publicEpisode(e: EpisodeRecord) {
   };
 }
 
-export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean; liveness?: LivenessChallenges; maxRegistrationsPerHour?: number };
+export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean; requireLocation?: boolean; liveness?: LivenessChallenges; maxRegistrationsPerHour?: number };
 
 const bearer = (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
 
@@ -108,7 +117,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
   const liveness = deps.liveness ?? new LivenessChallenges();
   const pdeps: PipelineDeps = {
     ...deps,
-    onDecided: (id, accepted) => devices?.decided(store.get(id)?.device_id, accepted),
+    onDecided: (id, accepted) => { const e = store.get(id); devices?.decided(e?.device_id, accepted, e?.contributor); },
     onPaid: (bid) => {
       const b = bounties.get(bid);
       if (b && store.list().filter((e) => e.bounty_id === bid && e.payment && !e.payment.error).length >= b.min_episodes) bounties.close(bid);
@@ -175,6 +184,11 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
       if (req.method === "GET" && url.pathname === "/me") {
         const me = accounts.session(bearer(req));
         return me ? send(res, 200, me) : send(res, 401, { error: "Not signed in." });
+      }
+
+      // --- what a contributor's app needs to know before recording ---------------------------------------------------------
+      if (req.method === "GET" && url.pathname === "/policy") {
+        return send(res, 200, { device_required: !!deps.requireDevice, location_required: !!(deps.requireLocation ?? deps.requireDevice) });
       }
 
       // --- device attestation: prove a take comes from a real phone running the real app -----------------------------------
@@ -519,11 +533,23 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         if (trust !== "attested" && (deps.requireDevice || bounty.min_trust_level === "attested")) {
           return send(res, 403, { error: "This needs a verified phone. Update Wrk and open it once to verify yours." });
         }
+        // Roughly where the take was made (an area of about a kilometre, never a precise point). Used only to notice many
+        // brand-new accounts in one small place.
+        const area = readArea(manifest.location);
+        if (area === "invalid") return send(res, 400, { error: "The take's location couldn't be read." });
+        if (area && area.mock) return send(res, 403, { error: "Turn off mock locations on this phone, then record again." });
+        if (!area && (deps.requireLocation ?? deps.requireDevice)) {
+          return send(res, 403, { error: "Turn on location (an approximate one is fine) so Wrk can check this isn't a duplicate account. Only a ~1 km area is kept." });
+        }
         if (devices) {
           const link = devices.linkCheck(deviceId, contributorId);
           if (!link.ok) return send(res, 403, { error: link.reason });
-          const a = devices.allowance(deviceId, contributorId);
-          if (a.used >= a.cap) return send(res, 403, { error: `You've reached today's limit of ${a.cap} takes. It grows as your takes are accepted. Come back tomorrow.` });
+          const a = devices.allowance(deviceId, contributorId, area ?? undefined);
+          if (a.used >= a.cap) {
+            return send(res, 403, { error: a.pooled
+              ? `Several new accounts are using this area, so new accounts here share ${a.cap} takes a day for now. It opens up as accounts build a record.`
+              : `You've reached today's limit of ${a.cap} takes. It grows as your takes are accepted. Come back tomorrow.` });
+          }
         }
 
         // A task with a live check needs the sequence the validator issued, shown in order, and spends it.
@@ -552,7 +578,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           trust_level: trust,
           liveness_prompts: prompts,
         });
-        devices?.note(deviceId, contributorId);
+        devices?.note(deviceId, contributorId, area ?? undefined);
 
         void runPipeline(pdeps, {
           episodeId,

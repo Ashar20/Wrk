@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { Keypair } from "@solana/web3.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Accounts } from "../src/accounts";
-import { Devices, UNATTESTED_DAILY_CAP } from "../src/attestation/devices";
+import { Devices, FREE_NEARBY, NEAR_KM, UNATTESTED_DAILY_CAP, distanceKm } from "../src/attestation/devices";
 import { BountyStore } from "../src/bountyStore";
 import { createHttpServer } from "../src/http";
 import type { Mailer } from "../src/mailer";
@@ -33,6 +33,7 @@ describe("devices: registration and limits", () => {
   let chain: FakeChain; let bounties: BountyStore; let devices: Devices; let authority: Authority; let mailer: CaptureMailer; let n = 0;
   let requireDevice = false;
   let maxRegistrations = 100;
+  let requireLocation: boolean | undefined;
   let clock = Date.now();
   /** Scoring waits on this, so a test can submit many takes before any is decided. */
   let hold: Promise<void> = Promise.resolve();
@@ -43,13 +44,13 @@ describe("devices: registration and limits", () => {
     devices = new Devices(mkdtempSync(join(tmpdir(), "wrk-d-")), { roots: [authority.rootPem], allowedAppCerts: [DIGEST], now: () => clock, rebindAfterMs: 30 * 24 * 3600_000 });
     server = createHttpServer({
       store: new Store(mkdtempSync(join(tmpdir(), "wrk-e-"))), accounts: new Accounts(mkdtempSync(join(tmpdir(), "wrk-a-")), mailer), bounties, chain, devices,
-      requireDevice, maxRegistrationsPerHour: maxRegistrations, score: async () => { await hold; return scores(); }, requireAnchor: true,
+      requireDevice, requireLocation, maxRegistrationsPerHour: maxRegistrations, score: async () => { await hold; return scores(); }, requireAnchor: true,
     });
     await new Promise<void>((r) => server.listen(0, r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   };
 
-  beforeEach(async () => { maxRegistrations = 100; clock = Date.now(); hold = Promise.resolve(); chain = new FakeChain(); mailer = new CaptureMailer(); authority = await makeAuthority(); n = 0; requireDevice = false; await build(); });
+  beforeEach(async () => { requireLocation = undefined; maxRegistrations = 100; clock = Date.now(); hold = Promise.resolve(); chain = new FakeChain(); mailer = new CaptureMailer(); authority = await makeAuthority(); n = 0; requireDevice = false; await build(); });
   afterEach(() => new Promise<void>((r) => server.close(() => r())));
 
   const api = async (path: string, init: { token?: string; json?: unknown; method?: string } = {}) => {
@@ -75,11 +76,12 @@ describe("devices: registration and limits", () => {
   const wallet = () => Keypair.generate().publicKey.toBase58();
   const refOf = (b: string) => ({ buyer: bounties.get(b)!.escrow!.buyer, bountyId: b });
 
-  async function upload(bountyId: string, contributor: string, opts: { phone?: Phone; signAs?: Phone; badSignature?: boolean; deviceId?: string } = {}) {
+  async function upload(bountyId: string, contributor: string, opts: { phone?: Phone; signAs?: Phone; badSignature?: boolean; deviceId?: string; loc?: { lat: number; lon: number; mock?: boolean } | "garbage" } = {}) {
     const rgb = new Uint8Array(Array.from({ length: 400 }, (_, i) => (i + n) % 251)); const imu = new Uint8Array([9, 8, 7]);
     const id = "ep_" + (++n).toString(16).padStart(4, "0").repeat(6);
     const manifest = await sealManifest({
       episode_id: id, schema_version: "0.2.0", bounty_id: bountyId, task: "t", contributor, duration_s: 15, recorded_at: 1757030400,
+      ...(opts.loc ? { location: opts.loc === "garbage" ? ("here" as any) : opts.loc } : {}),
       capture: { video: { fps_nominal: 30, fps_observed: 29.5 }, imu: { rate_hz_observed: 100 } },
       streams: { rgb: { sha256: await sha256Hex(rgb), bytes: 400, content_type: "video/mp4" }, imu: { sha256: await sha256Hex(imu), bytes: 3, content_type: "application/octet-stream" } },
     });
@@ -167,7 +169,7 @@ describe("devices: registration and limits", () => {
   });
 
   it("can require a verified phone for everything", async () => {
-    server.close(); requireDevice = true; await build();
+    server.close(); requireDevice = true; requireLocation = false; await build();
     expect((await upload("bounty_004", wallet())).status).toBe(403);
     expect((await upload("bounty_004", wallet(), { phone: await phone() })).status).toBe(202);
   });
@@ -259,6 +261,94 @@ describe("devices: registration and limits", () => {
     const u = await upload("bounty_004", wallet(), { phone: p });
     await settled(u.id);
     expect(devices.get(p.id)!.accepted).toBe(1);
+  });
+
+
+  // ---- where takes come from ---------------------------------------------------------------------------------------
+  const HOME = { lat: 51.5, lon: -0.12 };
+  /** A spot [km] kilometres due north of HOME, so tests can place accounts exactly near or far. */
+  const north = (km: number) => ({ lat: HOME.lat + km / 111, lon: HOME.lon });
+
+  it("measures distance sensibly", () => {
+    expect(distanceKm(HOME, HOME)).toBe(0);
+    expect(distanceKm(HOME, north(1))).toBeCloseTo(1, 1);
+    expect(distanceKm(HOME, north(10))).toBeCloseTo(10, 0);
+    expect(distanceKm({ lat: 0, lon: 0 }, { lat: 0, lon: 180 })).toBeCloseTo(20015, -1);
+  });
+
+  it("tells the app what it needs before recording", async () => {
+    expect((await api("/policy")).body).toEqual({ device_required: false, location_required: false });
+    server.close(); requireDevice = true; await build();
+    expect((await api("/policy")).body).toEqual({ device_required: true, location_required: true });
+  });
+
+  it("insists on a location when asked, refuses mock locations and nonsense, and keeps only about a kilometre", async () => {
+    server.close(); requireLocation = true; await build();
+    const p = await phone(); const me = wallet();
+    const none = await upload("bounty_004", me, { phone: p });
+    expect(none.status).toBe(403); expect(none.body.error).toMatch(/Turn on location/);
+    expect((await upload("bounty_004", me, { phone: p, loc: { ...HOME, mock: true } })).body.error).toMatch(/mock locations/);
+    expect((await upload("bounty_004", me, { phone: p, loc: "garbage" })).status).toBe(400);
+    expect((await upload("bounty_004", me, { phone: p, loc: { lat: 91, lon: 0 } })).status).toBe(400);
+    expect((await upload("bounty_004", me, { phone: p, loc: { lat: 51.50731, lon: -0.12766 } })).status).toBe(202);
+    const kept = (devices as any).people[me];
+    expect(kept.lat).toBeCloseTo(51.51, 5); expect(kept.lon).toBeCloseTo(-0.13, 5); // rounded to 0.01 degrees, never the precise point
+  });
+
+  it("lets a few new accounts share a place, then makes them share one small allowance", async () => {
+    const phones = [await phone(), await phone(), await phone(), await phone()];
+    const people = phones.map(() => wallet());
+    // three new accounts in one small area: a household or friends, each with its own allowance
+    for (let i = 0; i < FREE_NEARBY; i++) {
+      for (let k = 0; k < 2; k++) expect((await upload("bounty_004", people[i], { phone: phones[i], loc: north(0.1 * i) })).status).toBe(202);
+    }
+    // a fourth new account in the same spot: now they are a group, and the group shares 5 takes a day, with 6 already used
+    const fourth = await upload("bounty_004", people[3], { phone: phones[3], loc: north(0.2) });
+    expect(fourth.status).toBe(403); expect(fourth.body.error).toMatch(/Several new accounts are using this area/);
+    // the refused account never joined, so the first three carry on within their own allowances
+    expect((await upload("bounty_004", people[0], { phone: phones[0], loc: north(0) })).status).toBe(202);
+  });
+
+  it("does not pool accounts that are far apart", async () => {
+    for (let i = 0; i < 5; i++) {
+      const p = await phone(); const me = wallet();
+      expect((await upload("bounty_004", me, { phone: p, loc: north(i * 10) })).status).toBe(202); // 10 km apart
+    }
+  });
+
+  it(`pools only accounts within ${NEAR_KM} km`, async () => {
+    const near = [0, 0.5, 1.0, 1.4]; // within reach of one another
+    for (const km of near) {
+      const p = await phone();
+      for (let k = 0; k < 2; k++) await upload("bounty_004", wallet(), { phone: p, loc: north(km) }); // distinct accounts per take: each is new
+    }
+    const p = await phone(); const far = await upload("bounty_004", wallet(), { phone: p, loc: north(8) });
+    expect(far.status).toBe(202); // nobody is near 8 km away
+  });
+
+  it("never pools an established account, so neighbours with a record aren't punished", async () => {
+    const phones = [await phone(), await phone(), await phone(), await phone()];
+    const people = phones.map(() => wallet());
+    for (let i = 0; i < 3; i++) for (let k = 0; k < 2; k++) await upload("bounty_004", people[i], { phone: phones[i], loc: north(0.1 * i) });
+    (devices as any).people[people[3]] = { first_seen: clock - 40 * 86400_000, accepted: 25, rejected: 0, days: {}, lat: HOME.lat, lon: HOME.lon, cell_at: clock };
+    expect((await upload("bounty_004", people[3], { phone: phones[3], loc: north(0.2) })).status).toBe(202);
+  });
+
+  it("stops counting accounts as new after a while, so an old group dissolves", async () => {
+    const phones = [await phone(), await phone(), await phone(), await phone()];
+    const people = phones.map(() => wallet());
+    for (let i = 0; i < 3; i++) for (let k = 0; k < 2; k++) await upload("bounty_004", people[i], { phone: phones[i], loc: north(0.1 * i) });
+    clock += 15 * 86400_000; // two weeks on
+    expect((await upload("bounty_004", people[3], { phone: phones[3], loc: north(0.2) })).status).toBe(202);
+  });
+
+  it("an account with no recorded place can't be matched to neighbours, but still obeys its own limits", async () => {
+    let release!: () => void;
+    hold = new Promise<void>((r) => { release = r; }); // keep the allowance at its start while we count
+    const p = await phone(); const me = wallet();
+    for (let i = 0; i < 5; i++) expect((await upload("bounty_004", me, { phone: p })).status).toBe(202);
+    expect((await upload("bounty_004", me, { phone: p })).status).toBe(403);
+    release();
   });
 
   // ---- housekeeping ----------------------------------------------------------------------------------------------

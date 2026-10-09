@@ -53,6 +53,8 @@ createHttpServer({
   devices,
   // Earning needs a verified phone by default (once Wrk's signing certificate is configured). WRK_REQUIRE_DEVICE=0 turns it off.
   requireDevice: process.env.WRK_REQUIRE_DEVICE ? process.env.WRK_REQUIRE_DEVICE === "1" : allowedAppCerts.length > 0,
+  // Location (a ~1 km area) is needed to earn, like a verified phone. WRK_REQUIRE_LOCATION=0 turns it off.
+  requireLocation: process.env.WRK_REQUIRE_LOCATION ? process.env.WRK_REQUIRE_LOCATION === "1" : undefined,
   store,
   chain,
   score: createWorkerScorer(),

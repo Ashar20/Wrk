@@ -46,7 +46,34 @@ export const UNATTESTED_DAILY_CAP = 5;
 const ATTESTED_BASE_CAP = 5;
 const ATTESTED_MAX_CAP = 100;
 /** Phones and accounts are linked one to one; a link can move after this long (a genuine phone upgrade). */
-export const DEFAULT_REBIND_MS = 30 * 24 * 3600_000;
+export const DEFAULT_REBIND_MS = 7 * 24 * 3600_000;
+
+/** Where new accounts cluster: brand-new accounts this close together (km) are treated as one group. */
+export const NEAR_KM = 1.5;
+/** Up to this many new accounts in one small area are free (a household, a few friends). More share one allowance. */
+export const FREE_NEARBY = 3;
+/** An account is "new" until it has this many accepted takes, or this long has passed. Established accounts are never pooled. */
+export const ESTABLISHED_ACCEPTED = 10;
+export const NEW_ACCOUNT_WINDOW_MS = 14 * 24 * 3600_000;
+
+export interface Place { lat: number; lon: number }
+
+export function distanceKm(a: Place, b: Place) {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+/** What the validator remembers about one payment account. The location is a ~1 km area, never a precise point. */
+interface Person {
+  first_seen: number;
+  accepted: number;
+  rejected: number;
+  lat?: number;
+  lon?: number;
+  cell_at?: number;
+  days: Record<string, number>;
+}
 
 const CHALLENGE_TTL_MS = 5 * 60_000;
 const MAX_CHALLENGES = 5_000;
@@ -64,6 +91,8 @@ export class Devices {
   private addressDays: Record<string, Record<string, number>> = {};
   /** Which verified phone each payment account earns on. */
   private accountDevice: Record<string, { device_id: string; bound_at: number }> = {};
+  /** Every payment account that has earned, with its coarse area. Used to spot many new accounts in one place. */
+  private people: Record<string, Person> = {};
   private challenges = new Map<string, number>();
   private readonly file: string;
   private readonly now: () => number;
@@ -78,6 +107,7 @@ export class Devices {
       this.devices = j.devices ?? {};
       this.addressDays = j.addressDays ?? {};
       this.accountDevice = j.accountDevice ?? {};
+      this.people = j.people ?? {};
     }
   }
 
@@ -134,18 +164,42 @@ export class Devices {
     }
   }
 
-  /** How many takes may this submitter still send today? */
-  allowance(deviceId: string | null | undefined, address: string) {
+  private isNew(p: Person | undefined) {
+    return !p || (p.accepted < ESTABLISHED_ACCEPTED && this.now() - p.first_seen < NEW_ACCOUNT_WINDOW_MS);
+  }
+
+  /**
+   * Brand-new accounts clustered in one small area. Many phones and wallets in one spot is how a farm looks, and one
+   * person's gain from adding another is nothing if they all share one allowance. Established accounts are never pooled,
+   * so real neighbours aren't punished for living near each other.
+   */
+  private cluster(address: string, at: Place | undefined) {
+    const me = this.people[address];
+    const here = at ?? (me?.lat !== undefined ? { lat: me.lat, lon: me.lon! } : undefined);
+    if (!here || !this.isNew(me)) return [];
+    const recent = this.now() - NEW_ACCOUNT_WINDOW_MS;
+    return Object.entries(this.people)
+      .filter(([a, p]) => a !== address && this.isNew(p) && p.lat !== undefined && (p.cell_at ?? 0) > recent && distanceKm(here, { lat: p.lat, lon: p.lon! }) <= NEAR_KM)
+      .map(([a]) => a);
+  }
+
+  /** How many takes may this submitter still send today? [at] is where this take was made, as a coarse area. */
+  allowance(deviceId: string | null | undefined, address: string, at?: Place) {
     const day = dayOf(this.now());
+    const neighbours = this.cluster(address, at);
+    if (neighbours.length + 1 > FREE_NEARBY) {
+      const used = [address, ...neighbours].reduce((n, a) => n + (this.people[a]?.days[day] ?? 0), 0);
+      return { cap: UNATTESTED_DAILY_CAP, used, pooled: true };
+    }
     const d = this.get(deviceId);
     if (d?.fully_attested) {
       // Standing: accepted takes earn room, refused ones cost more than an accepted one earns, and it never drops below the
       // unverified allowance (a verified phone with a bad run is still better than nothing) or above the ceiling.
       const earned = ATTESTED_BASE_CAP + d.accepted * 2 - d.rejected * 3;
       const cap = Math.max(UNATTESTED_DAILY_CAP, Math.min(ATTESTED_MAX_CAP, earned));
-      return { cap, used: d.days[day] ?? 0 };
+      return { cap, used: d.days[day] ?? 0, pooled: false };
     }
-    return { cap: UNATTESTED_DAILY_CAP, used: this.addressDays[address]?.[day] ?? 0 };
+    return { cap: UNATTESTED_DAILY_CAP, used: this.addressDays[address]?.[day] ?? 0, pooled: false };
   }
 
   /**
@@ -172,8 +226,12 @@ export class Devices {
   }
 
   /** Counts a take that was let in, and makes (or keeps) the phone-account link. */
-  note(deviceId: string | null | undefined, address: string) {
+  note(deviceId: string | null | undefined, address: string, at?: Place) {
     const day = dayOf(this.now());
+    const person = (this.people[address] ??= { first_seen: this.now(), accepted: 0, rejected: 0, days: {} });
+    person.days[day] = (person.days[day] ?? 0) + 1;
+    if (at) { person.lat = at.lat; person.lon = at.lon; person.cell_at = this.now(); }
+    for (const k of Object.keys(person.days)) if (k < day) delete person.days[k];
     const d = this.get(deviceId);
     if (d?.fully_attested) {
       d.days[day] = (d.days[day] ?? 0) + 1;
@@ -196,16 +254,18 @@ export class Devices {
   }
 
   /** A take from this device was accepted or refused: its standing grows or doesn't. */
-  decided(deviceId: string | null | undefined, accepted: boolean) {
+  decided(deviceId: string | null | undefined, accepted: boolean, address?: string | null) {
+    const person = address ? this.people[address] : undefined;
+    if (person) { if (accepted) person.accepted++; else person.rejected++; }
     const d = this.get(deviceId);
-    if (!d) return;
+    if (!d) { if (person) this.flush(); return; }
     if (accepted) d.accepted++; else d.rejected++;
     this.flush();
   }
 
   private flush() {
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ devices: this.devices, addressDays: this.addressDays, accountDevice: this.accountDevice }));
+    writeFileSync(tmp, JSON.stringify({ devices: this.devices, addressDays: this.addressDays, accountDevice: this.accountDevice, people: this.people }));
     renameSync(tmp, this.file);
   }
 }
