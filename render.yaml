@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: wrk-validator
+    runtime: docker
+    plan: free
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /bounties
+    envVars:
+      - key: WRK_CLUSTER
+        value: devnet
+      - key: WRK_RPC_URL
+        value: https://api.devnet.solana.com
+      - key: WRK_DATA_DIR
+        value: /tmp/wrk-data
+      - key: WRK_MINT
+        sync: false
+      - key: WRK_TREASURY_JSON
+        sync: false
+      - key: WRK_ACCOUNT_KEY
+        sync: false
+      - key: WRK_APP_CERT_SHA256
+        sync: false

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { Keypair } from "@solana/web3.js";
 import { createHttpServer } from "./http";
 import { Store } from "./store";
@@ -13,6 +13,15 @@ import { createWorkerScorer } from "./scorer";
 
 const port = Number(process.env.PORT ?? 8850);
 const store = new Store(process.env.WRK_DATA_DIR ?? "data");
+
+// Hosts without a persistent disk pass the treasury key as an environment secret; it is written where the loader expects it.
+if (process.env.WRK_TREASURY_JSON) {
+  const dir = process.env.WRK_DATA_DIR ?? "data";
+  mkdirSync(dir, { recursive: true });
+  const file = `${dir}/treasury.json`;
+  writeFileSync(file, process.env.WRK_TREASURY_JSON, { mode: 0o600 });
+  process.env.WRK_TREASURY_KEYPAIR = file;
+}
 
 let chain: SolanaChain | null = null;
 if (process.env.WRK_MINT && process.env.WRK_TREASURY_KEYPAIR) {

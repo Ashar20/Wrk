@@ -22,3 +22,4 @@ escrow/target/
 escrow/node_modules/
 escrow/keys/
 escrow/.anchor/
+server/hosted.env

@@ -2,6 +2,18 @@
 
 The app reads its server address from `API_BASE` at build time. For a build anyone can install, point it at a public HTTPS validator.
 
+## Render (free, no card)
+
+Free web services have no disk and sleep after about 15 minutes idle (the first request then takes ~30 s). The validator copes: demo tasks reattach to their on-chain vaults at startup. Tasks posted by buyers and email sign-ins are kept only until the next restart.
+
+1. Push the repo to GitHub.
+2. On render.com: New, Blueprint, pick the repo. It reads `render.yaml`.
+3. Fill the four secrets from `server/hosted.env` (made by `cd server && npx tsx scripts/hosted-env.ts`; never commit it): `WRK_MINT`, `WRK_TREASURY_JSON`, `WRK_ACCOUNT_KEY`, `WRK_APP_CERT_SHA256`.
+4. When it's live, `curl https://<name>.onrender.com/bounties` should list five tasks.
+5. Build the APK: `./gradlew assembleRelease -Pwrk.apiBase=https://<name>.onrender.com`.
+
+The Fly steps below work too if you'd rather have a persistent disk.
+
 ## Fly.io (about 10 minutes)
 
 ```sh
