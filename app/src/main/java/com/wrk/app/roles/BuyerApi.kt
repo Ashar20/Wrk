@@ -70,7 +70,32 @@ fun budgetFor(perTakeUsd: Double, takes: Int): Budget {
 data class CreatedTask(val id: String, val funded: Boolean, val tx: String?)
 data class RefundResult(val tx: String?)
 
+data class CurvePoint(val episodes: Int, val meanError: Double, val stdError: Double)
+data class ContributorUtility(val episodes: Int, val share: Double)
+data class ModelResults(
+    val encoder: String, val parameters: Int, val trainEpisodes: Int, val heldoutEpisodes: Int,
+    val baselineError: Double, val modelError: Double, val curve: List<CurvePoint>, val utility: List<ContributorUtility>, val notes: List<String>,
+) {
+    /** Positive when the model beats "nothing changes"; negative when it doesn't yet. */
+    val improvement: Double get() = if (baselineError == 0.0) 0.0 else (baselineError - modelError) / baselineError
+}
+
+fun parseModelResults(o: JSONObject): ModelResults {
+    val curve = o.getJSONArray("curve")
+    val util = o.getJSONArray("utility")
+    val notes = o.getJSONArray("notes")
+    return ModelResults(
+        o.getString("encoder"), o.getInt("parameters"), o.getInt("train_episodes"), o.getInt("heldout_episodes"),
+        o.getDouble("baseline_error"), o.getDouble("model_error"),
+        List(curve.length()) { curve.getJSONObject(it).let { c -> CurvePoint(c.getInt("episodes"), c.getDouble("mean_error"), c.getDouble("std_error")) } },
+        List(util.length()) { util.getJSONObject(it).let { u -> ContributorUtility(u.getInt("episodes"), u.getDouble("share")) } },
+        List(notes.length()) { notes.getString(it) },
+    )
+}
+
 class BuyerApi(private val api: JsonApi) {
+    suspend fun model(): ModelResults = parseModelResults(api.get("/model"))
+
     suspend fun summary(): BuyerSummary = parseBuyerSummary(api.get("/buyer/summary"))
 
     /**

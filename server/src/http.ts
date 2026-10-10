@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import Busboy from "busboy";
 import { runPipeline, type PipelineDeps } from "./pipeline";
@@ -428,6 +429,9 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           if (/NothingToRefund/.test(m)) return send(res, 400, { error: "There's nothing left to refund." });
           throw err;
         }
+      }
+      if (req.method === "GET" && url.pathname === "/model") {
+        return send(res, 200, JSON.parse(readFileSync(new URL("../model-results.json", import.meta.url), "utf8")));
       }
       if (req.method === "GET" && url.pathname === "/buyer/summary") {
         const me = requireSession(req);

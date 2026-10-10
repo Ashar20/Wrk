@@ -71,7 +71,7 @@ suspend fun fundTask(api: BuyerApi, id: String, tx: String, onSignAndSend: suspe
 }
 
 @Composable
-fun BuyerDashboardScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, onOpen: (BuyerBounty) -> Unit, onNew: () -> Unit, modifier: Modifier = Modifier) {
+fun BuyerDashboardScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, onOpen: (BuyerBounty) -> Unit, onNew: () -> Unit, onModel: () -> Unit, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var fundingProblem by remember { mutableStateOf<String?>(null) }
     val state by produceState<Result<BuyerSummary>?>(null) {
@@ -86,6 +86,7 @@ fun BuyerDashboardScreen(api: BuyerApi, onSignAndSend: suspend (String) -> Strin
             }
         }
         item { InkButton("Post a new task", onNew, Modifier.fillMaxWidth()) }
+        item { PaperButton("What the data is worth", onModel, Modifier.fillMaxWidth()) }
         val r = state
         if (r?.isFailure == true) item {
             FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) { Text((r.exceptionOrNull() as? ApiException)?.message ?: "Couldn't load your tasks.", style = WrkType.body, color = WrkColors.butterInk) }

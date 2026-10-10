@@ -266,7 +266,8 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
             composable("rhistory") { ReviewHistoryScreen(reviewApi) }
 
             // ---- buyer -----------------------------------------------------------------------------------------------
-            composable("dash") { BuyerDashboardScreen(buyerApi, signAndSend, onOpen = { selectedBuyer = it; nav.navigate("bountyd") }, onNew = { nav.navigate("newtask") }) }
+            composable("dash") { BuyerDashboardScreen(buyerApi, signAndSend, onOpen = { selectedBuyer = it; nav.navigate("bountyd") }, onNew = { nav.navigate("newtask") }, onModel = { nav.navigate("model") }) }
+            composable("model") { com.wrk.app.ui.ModelScreen(buyerApi, onBack = { nav.popBackStack() }) }
             composable("bountyd") {
                 val b = selectedBuyer
                 if (b == null) LaunchedEffect(Unit) { goHome() } else BuyerBountyScreen(b, buyerApi, signAndSend, onBack = { nav.popBackStack() })

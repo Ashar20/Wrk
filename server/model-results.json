@@ -1,0 +1,57 @@
+{
+ "encoder": "mobilenet_v3_small (frozen)",
+ "latent_dim": 576,
+ "parameters": 692544,
+ "horizon": 2,
+ "train_episodes": 5,
+ "heldout_episodes": 1,
+ "baseline_error": 0.19727857410907745,
+ "model_error": 0.38954824209213257,
+ "improvement": -0.9746099841371884,
+ "curve": [
+  {
+   "episodes": 1,
+   "mean_error": 1.1522284746170044,
+   "std_error": 0.016820946118232136,
+   "seeds": 3
+  },
+  {
+   "episodes": 2,
+   "mean_error": 0.7188061873118082,
+   "std_error": 0.06678155053895066,
+   "seeds": 3
+  },
+  {
+   "episodes": 4,
+   "mean_error": 0.5106873313585917,
+   "std_error": 0.0266098796792704,
+   "seeds": 3
+  },
+  {
+   "episodes": 5,
+   "mean_error": 0.4238709807395935,
+   "std_error": 0.03171788020663695,
+   "seeds": 3
+  }
+ ],
+ "utility": [
+  {
+   "episodes": 3,
+   "delta": 0.5954500883817673,
+   "share": 0.7868317029309437
+  },
+  {
+   "episodes": 1,
+   "delta": 0.1118742972612381,
+   "share": 0.1478314396887374
+  },
+  {
+   "episodes": 1,
+   "delta": 0.049444928765296936,
+   "share": 0.06533685738031887
+  }
+ ],
+ "notes": [
+  "Trained on 6 episodes. The curve below is real but far too short to show a trend; product-spec \u00a78.2 targets 100."
+ ]
+}
