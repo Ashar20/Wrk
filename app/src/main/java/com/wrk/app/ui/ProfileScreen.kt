@@ -71,6 +71,7 @@ fun ProfileScreen(
     tasks: List<BuyerBounty>?,
     onOpenTake: (StoredEpisode) -> Unit,
     onAccountSettings: () -> Unit,
+    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var editing by remember { mutableStateOf(false) }
@@ -179,6 +180,7 @@ fun ProfileScreen(
         }
 
         item { PaperButton("Account and sign-in", onAccountSettings, Modifier.fillMaxWidth().padding(top = 8.dp)) }
+        item { PaperButton("Sign out", onSignOut, Modifier.fillMaxWidth()) }
     }
 }
 

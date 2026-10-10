@@ -154,6 +154,13 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
         }
     }
 
+    val signOut: () -> Unit = {
+        scope.launch {
+            if (account is Account.Wallet) c.wallet.disconnect(sender)
+            c.accounts.clear(); account = null; role = null
+            nav.navigate("login") { popUpTo(nav.graph.id) { inclusive = true } }
+        }
+    }
     fun goHome(r: Role = activeRole) { nav.navigate(homeFor(r)) { popUpTo(nav.graph.id) { inclusive = true } } }
 
     /** Verifier and Buyer need the validator to know who they are. Wallet users prove it by signing a message once. */
@@ -324,6 +331,7 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                         takes = takes, reviews = reviews, tasks = tasks,
                         onOpenTake = { nav.navigate("submission/${it.id}") },
                         onAccountSettings = { nav.navigate("account") },
+                        onSignOut = signOut,
                     )
                 }
             }
@@ -333,13 +341,7 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     auth = auth,
                     onConnectWallet = { c.wallet.connect(sender) },
                     onSignedIn = { c.accounts.save(it); account = it; nav.popBackStack() },
-                    onSignOut = {
-                        scope.launch {
-                            if (account is Account.Wallet) c.wallet.disconnect(sender)
-                            c.accounts.clear(); account = null; role = null
-                            nav.navigate("login") { popUpTo(nav.graph.id) { inclusive = true } }
-                        }
-                    },
+                    onSignOut = signOut,
                     onBack = { nav.popBackStack() },
                     role = role,
                     onSwitchRole = { rolesProblem = null; nav.navigate("roles") },
