@@ -25,7 +25,7 @@ const base = {
   liveness: "off" as const,
 };
 
-export const BOUNTIES: Bounty[] = [
+const SEEDS: Bounty[] = [
   {
     ...base,
     bounty_id: "bounty_004",
@@ -82,3 +82,13 @@ export const BOUNTIES: Bounty[] = [
     liveness: "require",
   },
 ];
+
+const cents = (n: number) => Math.round(n * 100) / 100;
+
+/** The money split follows from the pay and take count (60% takes, 30% bonus pool, 5% reviewers, 5% Wrk), as for any posted task. */
+export const BOUNTIES: Bounty[] = SEEDS.map((b) => {
+  const budget = cents((b.per_episode_usdc * b.min_episodes) / 0.6);
+  const utility = cents(budget * 0.3);
+  const validator = cents(budget * 0.05);
+  return { ...b, budget_usdc: budget, utility_pool_usdc: utility, validator_fee_usdc: validator, treasury_fee_usdc: cents(budget - b.per_episode_usdc * b.min_episodes - utility - validator) };
+});
