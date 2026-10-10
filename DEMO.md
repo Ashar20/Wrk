@@ -7,7 +7,7 @@ Setup: validator running with devnet configured, phone connected, `adb reverse t
 3. **Set up payment.** Enter an email, type the code from the validator console (or inbox). No wallet app. Mention the wallet option.
 4. **Record.** Three-second countdown, then 15 seconds. The coach asks you to turn your head if you're too still.
 5. **Review and submit.** Preview the clip, answer "Did you finish?", submit.
-6. **Watch it settle.** Sending, checking, payment, then a dark card with "You earned $0.60" and a receipt link.
+6. **Watch it settle.** Sending, checking, payment, then a dark card with "You earned 40 SKR" and a receipt link.
 7. **The spoof.** From a terminal:
    ```sh
    cd server
@@ -30,7 +30,7 @@ Setup: validator running with devnet configured, phone connected, `adb reverse t
     ```sh
     cd server && npx tsx --env-file=.env scripts/inspect-escrow.ts bounty_004
     ```
-    `locked: 60`. Record and submit a take as a contributor, then run it again with the episode id: the take is `accepted` on-chain and `locked` has dropped by exactly the per-take pay. The contributor's balance rose by the same amount.
+    `locked` equal to the task's full budget. Record and submit a take as a contributor, then run it again with the episode id: the take is `accepted` on-chain and `locked` has dropped by exactly the per-take pay. The contributor's balance rose by the same amount.
 11. **A rejected take pays nothing.** Submit the replay fixture: it's refused, the vault is untouched, and its reservation is released.
 
 ## Proof it's a real phone, and live

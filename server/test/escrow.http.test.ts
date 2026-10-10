@@ -87,7 +87,7 @@ describe("money moves only through the task's escrow", () => {
     const c = wallet();
     const u = await upload("bounty_004", c);
     expect((await settled(u.id)).payment.signature).toMatch(/^accept-/);
-    expect(vault("bounty_004").vault).toBeCloseTo(before - 0.6, 9);
+    expect(vault("bounty_004").vault).toBeCloseTo(before - 40, 9);
     expect(chain.payouts.filter((p) => p.kind === "escrow")).toHaveLength(1);
     expect(chain.payouts.every((p) => p.kind === "escrow")).toBe(true);
   });
@@ -98,7 +98,7 @@ describe("money moves only through the task's escrow", () => {
     expect((await settled(u.id)).accepted).toBe(false);
     expect(chain.rejected).toContain(u.id);
     expect(vault("bounty_004").pending).toBe(0);
-    expect(vault("bounty_004").vault).toBeCloseTo(60, 9); // untouched
+    expect(vault("bounty_004").vault).toBeCloseTo(4000, 9); // untouched
   });
 
   it("releases the reservation when scoring itself fails", async () => {
@@ -128,8 +128,8 @@ describe("money moves only through the task's escrow", () => {
 
   it("does not pay when the vault can't cover the take: it can't even be recorded", async () => {
     const buyer = await signIn("tiny@example.com");
-    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Two takes", task_spec: "Do the thing twice, first-person view.", per_episode_usdc: 1, min_episodes: 2 } })).body.bounty;
-    chain.vaults.get(`${buyer.address}|${made.bounty_id}`)!.vault = 0.5; // less than one take's worth, e.g. after a refund
+    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Two takes", task_spec: "Do the thing twice, first-person view.", per_episode_usdc: 10, min_episodes: 2 } })).body.bounty;
+    chain.vaults.get(`${buyer.address}|${made.bounty_id}`)!.vault = 5; // less than one take's worth, e.g. after a refund
     const contributor = await signIn("second@example.com");
     const u = await upload(made.bounty_id, contributor.address, { token: contributor.token });
     const v = await settled(u.id);
@@ -141,10 +141,10 @@ describe("money moves only through the task's escrow", () => {
   // ---- buyers ------------------------------------------------------------------------------------------------
   it("locks an email buyer's funds before the task opens, from test funds minted for them", async () => {
     const buyer = await signIn("b1@example.com");
-    const r = await api("/buyer/bounties", { token: buyer.token, json: { title: "Water a plant", task_spec: "Water a houseplant, first-person view.", per_episode_usdc: 0.5, min_episodes: 10 } });
+    const r = await api("/buyer/bounties", { token: buyer.token, json: { title: "Water a plant", task_spec: "Water a houseplant, first-person view.", per_episode_usdc: 30, min_episodes: 10 } });
     expect(r.status).toBe(201); expect(r.body.escrow.funded).toBe(true);
-    expect(chain.faucets).toContainEqual({ address: buyer.address, amountUsdc: 5 });
-    expect(vault(r.body.bounty.bounty_id).vault).toBe(5);
+    expect(chain.faucets).toContainEqual({ address: buyer.address, amountUsdc: 300 });
+    expect(vault(r.body.bounty.bounty_id).vault).toBe(300);
     expect((await api("/bounties")).body.bounties.map((b: any) => b.bounty_id)).toContain(r.body.bounty.bounty_id);
   });
 
@@ -159,7 +159,7 @@ describe("money moves only through the task's escrow", () => {
     const sig = (await import("node:crypto")).sign(null, Buffer.from(c.message), w.privateKey).toString("base64");
     const session = (await api("/auth/wallet/verify", { json: { address, signature: sig } })).body;
 
-    const r = await api("/buyer/bounties", { token: session.token, json: { title: "Fold a shirt", task_spec: "Fold a shirt on a bed, first-person view.", per_episode_usdc: 1, min_episodes: 4 } });
+    const r = await api("/buyer/bounties", { token: session.token, json: { title: "Fold a shirt", task_spec: "Fold a shirt on a bed, first-person view.", per_episode_usdc: 10, min_episodes: 4 } });
     expect(r.status).toBe(201); expect(r.body.escrow.funded).toBe(false); expect(typeof r.body.escrow.tx).toBe("string");
     const id = r.body.bounty.bounty_id;
     expect((await api("/bounties")).body.bounties.map((b: any) => b.bounty_id)).not.toContain(id);
@@ -178,7 +178,7 @@ describe("money moves only through the task's escrow", () => {
   it("cleans up and says so if the funds can't be locked", async () => {
     const buyer = await signIn("b3@example.com");
     chain.openEscrow = async () => { throw new Error("rpc down"); };
-    const r = await api("/buyer/bounties", { token: buyer.token, json: { title: "Doomed task", task_spec: "This one will not open, first-person.", per_episode_usdc: 1, min_episodes: 2 } });
+    const r = await api("/buyer/bounties", { token: buyer.token, json: { title: "Doomed task", task_spec: "This one will not open, first-person.", per_episode_usdc: 10, min_episodes: 2 } });
     expect(r.status).toBe(502); expect(r.body.error).toMatch(/Nothing was posted/);
     expect((await api("/buyer/summary", { token: buyer.token })).body.bounties.some((b: any) => b.title === "Doomed task")).toBe(false);
   });
@@ -186,10 +186,10 @@ describe("money moves only through the task's escrow", () => {
   it("shows what is locked, and lets the buyer take back the unspent funds only after the deadline", async () => {
     const buyer = await signIn("b4@example.com");
     const other = await signIn("b5@example.com");
-    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Sweep floor", task_spec: "Sweep a small floor, first-person view.", per_episode_usdc: 1, min_episodes: 3 } })).body.bounty;
+    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Sweep floor", task_spec: "Sweep a small floor, first-person view.", per_episode_usdc: 10, min_episodes: 3 } })).body.bounty;
     const ref = { buyer: buyer.address, bountyId: made.bounty_id };
     const row = async () => (await api("/buyer/summary", { token: buyer.token })).body.bounties.find((b: any) => b.bounty_id === made.bounty_id);
-    expect((await row()).escrow).toMatchObject({ funded: true, locked_usdc: 3, can_refund: false });
+    expect((await row()).escrow).toMatchObject({ funded: true, locked_usdc: 30, can_refund: false });
 
     expect((await api(`/buyer/bounties/${made.bounty_id}/refund`, { token: buyer.token, json: {} })).body.error).toMatch(/after the task's deadline/);
     expect((await api(`/buyer/bounties/${made.bounty_id}/refund`, { token: other.token, json: {} })).status).toBe(404);

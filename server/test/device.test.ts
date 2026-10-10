@@ -166,7 +166,7 @@ describe("devices: registration and limits", () => {
       await api("/auth/email/start", { json: { email: "pickyb@example.com" } });
       return (await api("/auth/email/verify", { json: { email: "pickyb@example.com", code: mailer.codes["pickyb@example.com"] } })).body;
     })();
-    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Verified only", task_spec: "Do the thing, first-person view.", per_episode_usdc: 1, min_episodes: 5, min_trust_level: "attested" } })).body.bounty;
+    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Verified only", task_spec: "Do the thing, first-person view.", per_episode_usdc: 10, min_episodes: 5, min_trust_level: "attested" } })).body.bounty;
     expect(made.min_trust_level).toBe("attested");
     expect((await upload(made.bounty_id, wallet())).status).toBe(403);
     expect((await upload(made.bounty_id, wallet(), { phone: await phone({ boot: { locked: false, state: 2 } }) })).status).toBe(403);
@@ -362,7 +362,7 @@ describe("devices: registration and limits", () => {
     expect(v.sybil_score).toBeGreaterThanOrEqual(40);
     await api("/auth/email/start", { json: { email: "scorebuyer@example.com" } });
     const buyer = (await api("/auth/email/verify", { json: { email: "scorebuyer@example.com", code: mailer.codes["scorebuyer@example.com"] } })).body;
-    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Scored task", task_spec: "Do the thing, first-person view.", per_episode_usdc: 1, min_episodes: 5 } })).body.bounty;
+    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Scored task", task_spec: "Do the thing, first-person view.", per_episode_usdc: 10, min_episodes: 5 } })).body.bounty;
     const p2 = await phone(); const me2 = wallet();
     await settled((await upload(made.bounty_id, me2, { phone: p2 })).id);
     const ds = (await api(`/buyer/bounties/${made.bounty_id}/dataset`, { token: buyer.token })).body;

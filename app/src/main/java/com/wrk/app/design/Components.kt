@@ -97,9 +97,13 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
 fun Tag(text: String, color: Color = WrkColors.muted, modifier: Modifier = Modifier) =
     Text(text, style = WrkType.label, color = color, modifier = modifier)
 
+/** An SKR amount as the app writes it: whole when whole ("40"), otherwise two decimals ("2.50"), with thousands separated. */
+fun skr(amount: Double): String =
+    if (amount == Math.rint(amount)) String.format(Locale.US, "%,.0f", amount) else String.format(Locale.US, "%,.2f", amount)
+
 /**
- * A quoted dollar amount: one weight, tabular, the unit riding the baseline.
- * Cents drop to 62% opacity only on the bone ground (`knockDownCents`); on mint/lilac/butter they stay solid.
+ * A quoted SKR amount: one weight, tabular, the unit riding the baseline. A caller's own unit ("per take") follows SKR.
+ * `knockDownCents` dims the decimals only on the bone ground; on mint/lilac/butter they stay solid.
  */
 @Composable
 fun Figure(
@@ -110,15 +114,15 @@ fun Figure(
     unit: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val whole = String.format(Locale.US, "%.2f", usd)
-    val (dollars, cents) = whole.substringBefore('.') to whole.substringAfter('.')
+    val text = skr(usd)
+    val whole = text.substringBefore('.')
+    val frac = if ('.' in text) ".${text.substringAfter('.')}" else ""
+    val unitSize = maxOf(10f, style.fontSize.value * 0.34f).sp
     Text(
         buildAnnotatedString {
-            append("$$dollars")
-            withStyle(SpanStyle(color = if (knockDownCents) color.copy(alpha = 0.62f) else color)) { append(".$cents") }
-            if (unit != null) {
-                withStyle(SpanStyle(fontSize = maxOf(10f, style.fontSize.value * 0.34f).sp, color = color.copy(alpha = 0.72f), letterSpacing = 0.02.em)) { append("\u2002$unit") }
-            }
+            append(whole)
+            if (frac.isNotEmpty()) withStyle(SpanStyle(color = if (knockDownCents) color.copy(alpha = 0.62f) else color)) { append(frac) }
+            withStyle(SpanStyle(fontSize = unitSize, color = color.copy(alpha = 0.72f), letterSpacing = 0.02.em)) { append("\u2002SKR" + (unit?.let { " $it" } ?: "")) }
         },
         style = style,
         color = color,

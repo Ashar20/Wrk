@@ -41,6 +41,7 @@ import com.wrk.app.design.InkButton
 import com.wrk.app.design.PaperButton
 import com.wrk.app.design.PaperCard
 import com.wrk.app.design.Tag
+import com.wrk.app.design.skr
 import com.wrk.app.design.WrkColors
 import com.wrk.app.design.WrkShape
 import com.wrk.app.design.WrkTextField
@@ -114,7 +115,7 @@ private fun BuyerBountyCard(b: BuyerBounty, onFinishFunding: () -> Unit, onClick
             listOfNotNull("Verified phones only".takeIf { b.verifiedOnly }, "Live check".takeIf { b.liveCheck }, "Reviewed by a person".takeIf { b.humanReview })
                 .takeIf { it.isNotEmpty() }?.let { Tag(it.joinToString(" · ")) }
             b.escrow?.let { e ->
-                if (e.funded) Tag("Locked in escrow${e.lockedUsd?.let { String.format(Locale.US, " · $%.2f", it) } ?: ""}")
+                if (e.funded) Tag("Locked in escrow${e.lockedUsd?.let { " · ${skr(it)} SKR" } ?: ""}")
                 else if (b.ownerIsYou) {
                     FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -184,7 +185,7 @@ fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onSignAndSend: suspend 
         PaperCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Tag("Budget")
-                Figure(b.budgetUsd, WrkType.figureInline, knockDownCents = true, unit = "for ${b.minEpisodes} takes at ${String.format(Locale.US, "$%.2f", b.perEpisodeUsd)}")
+                Figure(b.budgetUsd, WrkType.figureInline, knockDownCents = true, unit = "for ${b.minEpisodes} takes at ${skr(b.perEpisodeUsd)} SKR")
                 if (b.humanReview) Tag("A person reviews close calls")
             }
         }
@@ -258,8 +259,8 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
                 WrkTextField(title, { title = it.take(80) }, "Water a houseplant")
                 Tag("What should they do?")
                 WrkTextField(spec, { spec = it.take(600) }, "Water a houseplant with a small can, first-person view.")
-                Tag("Pay per accepted take (USD)")
-                WrkTextField(pay, { pay = it.filter { c -> c.isDigit() || c == '.' }.take(6) }, "0.60", keyboardType = KeyboardType.Decimal)
+                Tag("Pay per accepted take (SKR)")
+                WrkTextField(pay, { pay = it.filter { c -> c.isDigit() || c == '.' }.take(6) }, "40", keyboardType = KeyboardType.Decimal)
                 Tag("How many takes")
                 WrkTextField(takes, { takes = it.filter(Char::isDigit).take(4) }, "50", keyboardType = KeyboardType.Number)
                 Tag("Who can take part")
@@ -284,8 +285,8 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Tag("Budget")
                     Figure(budget.totalUsd, WrkType.figureLead, knockDownCents = true)
-                    Tag(String.format(Locale.US, "Takes $%.2f · bonus pool $%.2f · reviewers $%.2f · Wrk $%.2f", budget.takesUsd, budget.utilityUsd, budget.validatorsUsd, budget.treasuryUsd))
-                    Tag("The money for every take is locked in an on-chain escrow before your task opens. On devnet we add free test funds for you.")
+                    Tag("Takes ${skr(budget.takesUsd)} · bonus pool ${skr(budget.utilityUsd)} · reviewers ${skr(budget.validatorsUsd)} · Wrk ${skr(budget.treasuryUsd)} SKR")
+                    Tag("The money for every take is locked in an on-chain escrow before your task opens. On devnet we add free test SKR for you.")
                 }
             }
         }

@@ -71,9 +71,14 @@ export class EscrowClient {
     return this.validator.publicKey.toBase58();
   }
 
+  /** Task ids are namespaced by the reward token, so switching tokens opens fresh vaults instead of colliding with old ones. */
+  private vaultId(bountyId: string) {
+    return sha(`${this.mint.toBase58().slice(0, 8)}:${bountyId}`);
+  }
+
   // ---- addresses ------------------------------------------------------------------------------------------------
   bountyPda(ref: EscrowRef) {
-    return PublicKey.findProgramAddressSync([Buffer.from("bounty"), new PublicKey(ref.buyer).toBuffer(), Buffer.from(sha(ref.bountyId))], this.programId)[0];
+    return PublicKey.findProgramAddressSync([Buffer.from("bounty"), new PublicKey(ref.buyer).toBuffer(), Buffer.from(this.vaultId(ref.bountyId))], this.programId)[0];
   }
   vaultPda(ref: EscrowRef) {
     return PublicKey.findProgramAddressSync([Buffer.from("vault"), this.bountyPda(ref).toBuffer()], this.programId)[0];
@@ -141,7 +146,7 @@ export class EscrowClient {
     const bounty = this.bountyPda(a.ref);
     const vault = this.vaultPda(a.ref);
     const create = await this.program.methods
-      .createBounty(sha(a.ref.bountyId), this.validator.publicKey, new BN(a.perEpisodeRaw.toString()), a.maxEpisodes, new BN(a.deadline), new BN(a.graceSecs))
+      .createBounty(this.vaultId(a.ref.bountyId), this.validator.publicKey, new BN(a.perEpisodeRaw.toString()), a.maxEpisodes, new BN(a.deadline), new BN(a.graceSecs))
       .accountsPartial({ payer: this.validator.publicKey, buyer, mint: this.mint, bounty, vault })
       .instruction();
     const ixs = [create];

@@ -92,7 +92,7 @@ export class BountyStore {
     const spec = input.task_spec.trim();
     if (title.length < 3 || title.length > 80) throw new BountyInputError("Give the task a title between 3 and 80 characters.");
     if (spec.length < 10 || spec.length > 600) throw new BountyInputError("Describe what to do in 10 to 600 characters.");
-    if (!(input.per_episode_usdc >= 0.1 && input.per_episode_usdc <= 20)) throw new BountyInputError("Pay between $0.10 and $20 per take.");
+    if (!(input.per_episode_usdc >= 5 && input.per_episode_usdc <= 1000)) throw new BountyInputError("Pay between 5 and 1,000 SKR per take.");
     if (!Number.isInteger(input.min_episodes) || input.min_episodes < 1 || input.min_episodes > 1000) throw new BountyInputError("Ask for between 1 and 1,000 takes.");
     const money = budgetFor(input.per_episode_usdc, input.min_episodes);
     const bounty: Bounty = {

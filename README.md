@@ -107,7 +107,7 @@ What this does not stop: a person who buys several phones and spreads them far e
 
 - Validation is heuristic. It shows that video and motion agree, not that the scene was real.
 - The validator decides what's accepted. The escrow limits what it can do with the money, not whether it judges well.
-- On devnet the reward token is a free test token, and buyers are given test funds to lock up. Real funds would need a real mint and a real buyer deposit.
+- Pay is in SKR, Solana Mobile's token (a standard 6-decimal SPL token, mainnet mint `SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3`). SKR exists only on mainnet and only Solana Mobile can mint it, so on devnet Wrk uses a free test token that behaves identically and the app labels it SKR. Pointing the validator at the real mint is one setting (`WRK_MINT`), because the escrow program works with any SPL token and reads its decimals; mainnet would also need the escrow program deployed there and real SKR deposited by buyers. Amounts are set in SKR, not dollars. (Internal field names still end in `_usdc`.)
 - Wallet users' transactions are built and fee-sponsored by the validator. A phone that asks for a transaction and never uploads has its reservation released after 30 minutes.
 - Email accounts are custodial: Wrk holds their keys (encrypted) and there is no withdrawal yet.
 - Raw video lives on the validator's disk; there's no content-addressed storage or deletion policy yet.

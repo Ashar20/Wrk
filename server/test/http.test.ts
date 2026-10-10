@@ -108,7 +108,7 @@ describe("validator HTTP", () => {
   it("does not leak acceptance thresholds in the bounty feed", async () => {
     const { bounties } = await (await fetch(`${base}/bounties`)).json();
     expect(bounties[0].bounty_id).toBe("bounty_004");
-    expect(bounties[0].per_episode_usdc).toBe(0.6);
+    expect(bounties[0].per_episode_usdc).toBe(40);
     expect(bounties[0]).not.toHaveProperty("min_plausibility");
   });
 
@@ -119,7 +119,7 @@ describe("validator HTTP", () => {
     const done = await settled(base, ep.id);
     expect(done.accepted).toBe(true);
     expect(done.payment.signature).toBe("accept-1");
-    expect(done.payment.amount_usdc).toBe(0.6);
+    expect(done.payment.amount_usdc).toBe(40);
 
     // Retried upload is idempotent: same record, no second payout.
     const again = await upload(base, ep, "sig1");
@@ -212,7 +212,7 @@ describe("validator HTTP", () => {
     expect(done.anchor.verified).toBe(true);
     expect(chain.anchored).toHaveLength(1);
     expect(chain.payouts).toHaveLength(1);
-    expect(chain.payouts[0]).toMatchObject({ contributor: a.address, amountUsdc: 0.6 });
+    expect(chain.payouts[0]).toMatchObject({ contributor: a.address, amountUsdc: 40 });
   });
 
   it("refuses to submit an episode as someone else's payment account", async () => {

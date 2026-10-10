@@ -87,7 +87,7 @@ describe("the live check, end to end", () => {
 
   it("tells contributors which tasks need it, and what the demo task pays for it", async () => {
     const feed = (await api("/bounties")).body.bounties as any[];
-    expect(feed.find((b) => b.bounty_id === "bounty_008")).toMatchObject({ liveness: "require", per_episode_usdc: 1.2 });
+    expect(feed.find((b) => b.bounty_id === "bounty_008")).toMatchObject({ liveness: "require", per_episode_usdc: 75 });
     expect(feed.find((b) => b.bounty_id === "bounty_004").liveness).toBe("off");
   });
 
@@ -96,7 +96,7 @@ describe("the live check, end to end", () => {
     const u = await upload("bounty_008", { nonce: c.nonce, prompts: c.prompts.slice(0, 3) });
     expect(u.status).toBe(202);
     const v = await settled(u.id);
-    expect(v.accepted).toBe(true); expect(v.payment.amount_usdc).toBe(1.2);
+    expect(v.accepted).toBe(true); expect(v.payment.amount_usdc).toBe(75);
     expect(v.liveness).toEqual({ required: true, passed: true, matched: 3, total: 3 });
     expect(seen?.prompts).toEqual(c.prompts.slice(0, 3));
   });
@@ -147,7 +147,7 @@ describe("the live check, end to end", () => {
   it("lets a buyer require it, and never sends a failed live check to a human reviewer", async () => {
     await api("/auth/email/start", { json: { email: "livebuyer@example.com" } });
     const buyer = (await api("/auth/email/verify", { json: { email: "livebuyer@example.com", code: mailer.codes["livebuyer@example.com"] } })).body;
-    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Careful task", task_spec: "Do the thing, first-person view.", per_episode_usdc: 1, min_episodes: 5, review_policy: "borderline", liveness: "require" } })).body.bounty;
+    const made = (await api("/buyer/bounties", { token: buyer.token, json: { title: "Careful task", task_spec: "Do the thing, first-person view.", per_episode_usdc: 10, min_episodes: 5, review_policy: "borderline", liveness: "require" } })).body.bounty;
     expect(made.liveness).toBe("require");
 
     plausibility = 62; livenessPasses = false; // close to the bar, which would normally wait for a person

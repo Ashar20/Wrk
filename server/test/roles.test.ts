@@ -140,18 +140,18 @@ describe("verifier, buyer and wallet roles", () => {
     const verifier = await signIn("rev@example.com");
     const q = await api("/review/queue", { token: verifier.token });
     expect(q.body.items.map((i: any) => i.episode_id)).toContain(a.id);
-    expect(q.body.items[0]).toMatchObject({ bounty_title: "Cup pick-and-place, reviewed", fee_usdc: 0.05, per_episode_usdc: 0.9 });
+    expect(q.body.items[0]).toMatchObject({ bounty_title: "Cup pick-and-place, reviewed", fee_usdc: 3, per_episode_usdc: 60 });
     expect(JSON.stringify(q.body)).not.toMatch(/min_plausibility|signature/);
 
     const d = await api(`/review/${a.id}/decision`, { method: "POST", token: verifier.token, json: { decision: "approve", note: "looks real" } });
     expect(d.status).toBe(200); expect(d.body.decision).toBe("approved");
     const after = await settled(a.id);
-    expect(after.accepted).toBe(true); expect(after.payment.amount_usdc).toBe(0.9);
-    expect(chain.payouts.map((p) => [p.contributor, p.amountUsdc])).toEqual([[CONTRIBUTOR, 0.9], [verifier.address, 0.05]]);
+    expect(after.accepted).toBe(true); expect(after.payment.amount_usdc).toBe(60);
+    expect(chain.payouts.map((p) => [p.contributor, p.amountUsdc])).toEqual([[CONTRIBUTOR, 60], [verifier.address, 3]]);
 
     expect((await api(`/review/${a.id}/decision`, { method: "POST", token: verifier.token, json: { decision: "reject" } })).status).toBe(409);
     const mine = await api("/review/mine", { token: verifier.token });
-    expect(mine.body.earned_usdc).toBe(0.05); expect(mine.body.items[0]).toMatchObject({ decision: "approved", fee_usdc: 0.05 });
+    expect(mine.body.earned_usdc).toBe(3); expect(mine.body.items[0]).toMatchObject({ decision: "approved", fee_usdc: 3 });
   });
 
   it("a rejection pays the verifier but never the contributor, and says why in plain words", async () => {
@@ -213,14 +213,14 @@ describe("verifier, buyer and wallet roles", () => {
 
   it("lets a buyer post a task that contributors then see, and rejects nonsense", async () => {
     const buyer = await signIn("buyer@example.com");
-    const good = { title: "Water a plant", task_spec: "Water a houseplant with a small can, first-person.", per_episode_usdc: 0.75, min_episodes: 20, review_policy: "borderline" };
+    const good = { title: "Water a plant", task_spec: "Water a houseplant with a small can, first-person.", per_episode_usdc: 30, min_episodes: 20, review_policy: "borderline" };
     expect((await api("/buyer/bounties", { method: "POST", json: good })).status).toBe(401);
-    for (const bad of [{ ...good, title: "x" }, { ...good, per_episode_usdc: 50 }, { ...good, min_episodes: 0 }, { ...good, task_spec: "short" }]) {
+    for (const bad of [{ ...good, title: "x" }, { ...good, per_episode_usdc: 2000 }, { ...good, min_episodes: 0 }, { ...good, task_spec: "short" }]) {
       expect((await api("/buyer/bounties", { method: "POST", token: buyer.token, json: bad })).status).toBe(400);
     }
     const made = await api("/buyer/bounties", { method: "POST", token: buyer.token, json: good });
     expect(made.status).toBe(201);
-    expect(made.body.bounty).toMatchObject({ title: "Water a plant", per_episode_usdc: 0.75, review_policy: "borderline", budget_usdc: 25 });
+    expect(made.body.bounty).toMatchObject({ title: "Water a plant", per_episode_usdc: 30, review_policy: "borderline", budget_usdc: 1000 });
     expect(made.body.bounty).not.toHaveProperty("min_plausibility");
     const feed = (await api("/bounties")).body.bounties.map((b: any) => b.bounty_id);
     expect(feed).toContain(made.body.bounty.bounty_id);
@@ -229,14 +229,14 @@ describe("verifier, buyer and wallet roles", () => {
   it("shows a buyer their results, spend and score spread, and only their own datasets", async () => {
     const buyer = await signIn("buyer2@example.com");
     const other = await signIn("buyer3@example.com");
-    const made = (await api("/buyer/bounties", { method: "POST", token: buyer.token, json: { title: "Fold a shirt", task_spec: "Fold a shirt on a bed, first-person view.", per_episode_usdc: 1, min_episodes: 5 } })).body.bounty;
+    const made = (await api("/buyer/bounties", { method: "POST", token: buyer.token, json: { title: "Fold a shirt", task_spec: "Fold a shirt on a bed, first-person view.", per_episode_usdc: 10, min_episodes: 5 } })).body.bounty;
 
     plausibility = 90; const ok = await submit(made.bounty_id); await settled(ok.id);
     plausibility = 5; const bad = await submit(made.bounty_id); await settled(bad.id);
 
     const s = (await api("/buyer/summary", { token: buyer.token })).body;
     const row = s.bounties.find((b: any) => b.bounty_id === made.bounty_id);
-    expect(row).toMatchObject({ accepted: 1, rejected: 1, in_review: 0, spend_usdc: 1, owner_is_you: true });
+    expect(row).toMatchObject({ accepted: 1, rejected: 1, in_review: 0, spend_usdc: 10, owner_is_you: true });
     expect(row.histogram).toEqual([1, 0, 0, 0, 1]);
     expect(s.total_spend_usdc).toBeGreaterThanOrEqual(1);
     expect(s.bounties.some((b: any) => b.bounty_id === "bounty_004")).toBe(true); // the demo bounties are visible to everyone
@@ -253,7 +253,7 @@ describe("verifier, buyer and wallet roles", () => {
 
   it("closes a task once it has paid for every take it asked for", async () => {
     const buyer = await signIn("buyer4@example.com");
-    const made = (await api("/buyer/bounties", { method: "POST", token: buyer.token, json: { title: "One take only", task_spec: "Do the thing once, first-person view.", per_episode_usdc: 1, min_episodes: 1 } })).body.bounty;
+    const made = (await api("/buyer/bounties", { method: "POST", token: buyer.token, json: { title: "One take only", task_spec: "Do the thing once, first-person view.", per_episode_usdc: 10, min_episodes: 1 } })).body.bounty;
     plausibility = 90;
     const first = await submit(made.bounty_id); await settled(first.id);
     expect((await api("/bounties")).body.bounties.some((b: any) => b.bounty_id === made.bounty_id)).toBe(false);

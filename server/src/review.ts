@@ -3,7 +3,7 @@ import type { EpisodeRecord } from "./store";
 import type { Bounty } from "@/lib/market/types";
 
 /** What a verifier earns per decision, from the bounty's validator pool. Approve or reject pays the same. */
-export const REVIEW_FEE_USDC = 0.05;
+export const REVIEW_FEE_USDC = 3;
 
 export class ReviewError extends Error {
   constructor(message: string, readonly status = 400) {
