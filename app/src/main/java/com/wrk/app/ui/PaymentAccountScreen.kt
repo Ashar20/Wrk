@@ -134,7 +134,7 @@ fun PaymentAccountScreen(
             scope.launch {
                 busy = true; problem = null
                 when (val r = onConnectWallet()) {
-                    is WalletResult.Connected -> onSignedIn(Account.Wallet(r.address))
+                    is WalletResult.Connected -> onSignedIn(Account.Wallet(r.address, r.token))
                     WalletResult.NoWalletInstalled -> problem = "No wallet app found on this phone. Use email instead, or install a Solana wallet first."
                     is WalletResult.Failed -> problem = r.message
                 }

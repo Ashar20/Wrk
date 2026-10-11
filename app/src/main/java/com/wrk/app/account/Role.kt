@@ -6,6 +6,6 @@ enum class Role(val label: String, val blurb: String) {
     Verifier("Verifier", "Review takes that the automatic checks couldn't call, and earn a fee for each decision."),
     Buyer("Buyer", "Post tasks, watch the takes come in, and download the dataset.");
 
-    /** Verifier and Buyer actions are tied to a signed-in identity on the validator. */
-    val needsSession: Boolean get() = this != Contributor
+    /** Every role is tied to a signed-in identity on the validator: it records a contributor's takes on their behalf too. */
+    val needsSession: Boolean get() = true
 }

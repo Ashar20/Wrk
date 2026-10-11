@@ -247,6 +247,10 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     pending = p,
                     hasAccount = account != null,
                     onSubmit = { report ->
+                        // A wallet needs a session the validator knows before it can record this take for them.
+                        val (signedIn, problem) = sessionFor(Role.Contributor, account)
+                        if (problem != null) throw com.wrk.app.episode.EpisodeException(problem)
+                        account = signedIn
                         val id = service.submit(p, checkNotNull(account), report)
                         nav.navigate("submission/$id") { popUpTo(nav.graph.id) { inclusive = true } }
                     },
