@@ -51,6 +51,8 @@ internal fun explorerUrl(signature: String) = "https://explorer.solana.com/tx/$s
 fun SubmissionScreen(
     id: String,
     store: EpisodeStore,
+    /** True only when arriving straight from Submit: that is when the wallet is asked, not every time the take is opened later. */
+    justSubmitted: Boolean,
     onApprovePayout: suspend () -> String?,
     onRetry: () -> Unit,
     onRecordAgain: () -> Unit,
@@ -67,8 +69,8 @@ fun SubmissionScreen(
     var approvalProblem by remember { mutableStateOf<String?>(null) }
     val uri = LocalUriHandler.current
 
-    // Wallet users: raise the wallet's approval once, automatically; after that the button is there if they dismissed it.
-    var autoTried by remember { mutableStateOf(false) }
+    // Wallet users: raise the wallet's approval once, right after Submit; after that the button is there if they dismissed it.
+    var autoTried by remember { mutableStateOf(!justSubmitted) }
     LaunchedEffect(s?.needsPayoutApproval) {
         if (s?.needsPayoutApproval == true && !autoTried) {
             autoTried = true; approving = true; approvalProblem = onApprovePayout(); approving = false
