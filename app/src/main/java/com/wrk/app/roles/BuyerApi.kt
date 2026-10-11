@@ -41,7 +41,7 @@ fun parseBuyerSummary(o: JSONObject): BuyerSummary {
         BuyerBounty(
             id = b.getString("bounty_id"), title = b.getString("title"), open = b.optString("status") == "open",
             ownerIsYou = b.optBoolean("owner_is_you"), perEpisodeUsd = b.optDouble("per_episode_usdc"), minEpisodes = b.optInt("min_episodes"),
-            budgetUsd = b.optDouble("budget_usdc"), humanReview = b.optString("review_policy") == "borderline",
+            budgetUsd = b.optDouble("budget_usdc"), humanReview = b.optString("review_policy") != "none",
             liveCheck = b.optString("liveness") == "require", verifiedOnly = b.optString("min_trust_level") == "attested",
             accepted = b.optInt("accepted"), rejected = b.optInt("rejected"), inReview = b.optInt("in_review"), scoring = b.optInt("scoring"),
             spendUsd = b.optDouble("spend_usdc"), avgPlausibility = if (b.isNull("avg_plausibility")) null else b.optDouble("avg_plausibility"),

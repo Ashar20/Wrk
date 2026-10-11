@@ -135,6 +135,13 @@ describe("verifier, buyer and wallet roles", () => {
     expect(cv.status).toBe("scored"); expect(cv.accepted).toBe(false);
   });
 
+  it("sends every acceptable take on a person-reviewed task to a person, however good it is", async () => {
+    plausibility = 95;
+    const a = await submit("bounty_007");
+    const v = await settled(a.id);
+    expect(v.status).toBe("in_review"); expect(chain.payouts).toHaveLength(0);
+  });
+
   it("lets a verifier approve: the contributor is paid once and the verifier earns the fee", async () => {
     const a = await submit("bounty_007"); await settled(a.id);
     const verifier = await signIn("rev@example.com");

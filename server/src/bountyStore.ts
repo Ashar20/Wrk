@@ -8,7 +8,7 @@ export interface NewBountyInput {
   task_spec: string;
   per_episode_usdc: number;
   min_episodes: number;
-  review_policy?: "none" | "borderline";
+  review_policy?: "none" | "borderline" | "always";
   /** "attested" restricts the task to takes signed by a verified phone. */
   min_trust_level?: "heuristic" | "attested";
   liveness?: "off" | "require";

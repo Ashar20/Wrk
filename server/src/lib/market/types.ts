@@ -62,8 +62,8 @@ export interface Bounty {
   status: "open" | "closed";
   /** Who posted it: a payment-account address, or "wrk" for the demo bounties. */
   owner?: string;
-  /** "borderline": takes near the bar wait for a human reviewer before they are paid or refused. */
-  review_policy?: "none" | "borderline";
+  /** "borderline": takes near the bar wait for a human reviewer before they are paid or refused. "always": every take that would otherwise be accepted does. */
+  review_policy?: "none" | "borderline" | "always";
   /** "require": the contributor is prompted for random head movements, and the take must show them. */
   liveness?: "off" | "require";
   /** Where its money is locked. Absent when the validator runs without a chain (local development). */

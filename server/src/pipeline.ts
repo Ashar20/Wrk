@@ -138,8 +138,12 @@ export async function runPipeline(
     const hardProblem = validation.failures.length > 0 || reasons.some((r) => /not found on Solana|live head-movement/.test(r));
     const onlyMotionMiss = !decision.accepted && decision.reasons.length === 1 && /Motion match/.test(decision.reasons[0]);
     const needsReview =
-      bounty.review_policy === "borderline" && !hardProblem && plausibility !== null &&
-      Math.abs(plausibility - bounty.min_plausibility) <= REVIEW_BAND && (decision.accepted || onlyMotionMiss);
+      !hardProblem && plausibility !== null && (
+        // Every take that would be paid goes to a person when the task says so; a clear miss never does.
+        (bounty.review_policy === "always" && decision.accepted) ||
+        ((bounty.review_policy === "borderline" || bounty.review_policy === "always") &&
+          Math.abs(plausibility - bounty.min_plausibility) <= REVIEW_BAND && (decision.accepted || onlyMotionMiss))
+      );
     if (needsReview) {
       store.update(episodeId, {
         status: "in_review", accepted: false, reasons: [], plausibility, framing: submission.framing,
