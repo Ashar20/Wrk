@@ -239,7 +239,7 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
     val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
     var spec by remember { mutableStateOf("") }
-    var pay by remember { mutableStateOf("0.60") }
+    var pay by remember { mutableStateOf("40") }
     var takes by remember { mutableStateOf("50") }
     var review by remember { mutableStateOf(false) }
     var verifiedOnly by remember { mutableStateOf(false) }
@@ -249,7 +249,7 @@ fun NewBountyScreen(api: BuyerApi, onSignAndSend: suspend (String) -> String?, o
 
     val perTake = pay.toDoubleOrNull()
     val count = takes.toIntOrNull()
-    val valid = title.trim().length >= 3 && spec.trim().length >= 10 && perTake != null && perTake in 0.10..20.0 && count != null && count in 1..1000
+    val valid = title.trim().length >= 3 && spec.trim().length >= 10 && perTake != null && perTake in 5.0..1000.0 && count != null && count in 1..1000
     val budget = if (perTake != null && count != null && valid) budgetFor(perTake, count) else null
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WrkShape.gutter), verticalArrangement = Arrangement.spacedBy(WrkShape.stack)) {
