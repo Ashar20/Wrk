@@ -129,17 +129,34 @@ fun SubmissionScreen(
 
 @Composable
 private fun Steps(s: EpisodeState) {
+    val inReview = s.status == EpisodeStatus.InReview
     val stage = when (s.status) { EpisodeStatus.NotSubmitted -> 0; EpisodeStatus.Submitted, EpisodeStatus.Validating, EpisodeStatus.InReview -> 1; else -> 2 }
+    // Once the take is waiting for a person, say so loudly: this is the moment a verifier can open it.
+    if (inReview) {
+        FieldCard(WrkColors.mint, Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Ready for a reviewer", style = WrkType.title, color = WrkColors.mintInk)
+                Text("Your take passed the automatic checks. A verifier can open it in their queue now.", style = WrkType.body, color = WrkColors.mintInk)
+            }
+        }
+    }
     PaperCard(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            listOf("Sending your take", if (s.status == EpisodeStatus.InReview) "A reviewer is checking your take" else "Checking it against the task", "Processing payment").forEachIndexed { i, label ->
+            val labels = listOf("Sending your take", if (inReview) "Waiting for a reviewer" else "Checking it against the task", "Processing payment")
+            labels.forEachIndexed { i, label ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    val color = when { i < stage -> WrkColors.positive; i == stage -> WrkColors.ink; else -> WrkColors.paperSunk }
-                    Column(Modifier.size(14.dp).clip(CircleShape).background(color)) {}
+                    when {
+                        i < stage -> Column(Modifier.size(18.dp).clip(CircleShape).background(WrkColors.positive), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Text("\u2713", style = WrkType.label, color = WrkColors.onInk)
+                        }
+                        i == stage -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = WrkColors.ink, strokeWidth = 2.dp)
+                        else -> Column(Modifier.size(18.dp).clip(CircleShape).background(WrkColors.paperSunk)) {}
+                    }
                     Text(label, style = WrkType.body, color = if (i <= stage) WrkColors.foreground else WrkColors.subtle)
                 }
             }
-            Tag(if (s.status == EpisodeStatus.InReview) "This one was close, so a person is looking at it. It can take a little while." else "Usually under a minute")
+            if (!inReview) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = WrkColors.ink, trackColor = WrkColors.paperSunk)
+            Tag(if (inReview) "A person is deciding. You'll be paid the moment they approve it." else "Usually under a minute")
         }
     }
 }
