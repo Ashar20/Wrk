@@ -127,7 +127,10 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val reviewApi = remember { ReviewApi(json) }
     val buyerApi = remember { BuyerApi(json) }
 
-    val list by produceState<List<Bounty>?>(null) { value = repo.bounties() }
+    // Kept fresh, so tasks the validator adds or reorders show up without restarting the app.
+    val list by produceState<List<Bounty>?>(null) {
+        while (true) { runCatching { repo.bounties() }.getOrNull()?.let { value = it }; delay(10_000) }
+    }
     val bounties = list ?: emptyList()
     var account by remember { mutableStateOf(c.accounts.load()) }
     var role by remember { mutableStateOf(c.accounts.role) }
