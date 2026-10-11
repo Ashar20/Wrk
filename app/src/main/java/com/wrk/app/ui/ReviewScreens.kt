@@ -114,7 +114,7 @@ fun ReviewDetailScreen(item: ReviewItem, api: ReviewApi, onDone: () -> Unit, onB
         Text(item.taskSpec, style = WrkType.body, color = WrkColors.muted)
         Tag(if (item.trustLevel == "attested") "Signed by a verified phone" else "Phone not verified")
 
-        AndroidView(
+        androidx.compose.runtime.key(item.episodeId) { AndroidView(
             factory = { ctx ->
                 VideoView(ctx).apply {
                     setVideoURI(Uri.parse(api.videoUrl(item.episodeId)), api.authHeader())
@@ -123,7 +123,7 @@ fun ReviewDetailScreen(item: ReviewItem, api: ReviewApi, onDone: () -> Unit, onB
                 }
             },
             modifier = Modifier.fillMaxWidth().height(380.dp).clip(RoundedCornerShape(WrkShape.panel)),
-        )
+        ) }
 
         PaperCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {

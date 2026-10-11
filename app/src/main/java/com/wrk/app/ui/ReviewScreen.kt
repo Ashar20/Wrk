@@ -69,7 +69,8 @@ fun ReviewScreen(
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WrkShape.gutter), verticalArrangement = Arrangement.spacedBy(WrkShape.stack)) {
         Text("Review your take", style = WrkType.title, color = WrkColors.foreground)
 
-        AndroidView(
+        // Keyed by the file: a new recording always gets a new player, never the previous take's.
+        androidx.compose.runtime.key(raw.videoFile.absolutePath, raw.videoFile.lastModified()) { AndroidView(
             factory = { ctx ->
                 VideoView(ctx).apply {
                     setVideoPath(raw.videoFile.absolutePath)
@@ -77,7 +78,7 @@ fun ReviewScreen(
                 }
             },
             modifier = Modifier.fillMaxWidth().height(360.dp).clip(RoundedCornerShape(WrkShape.panel)),
-        )
+        ) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(WrkShape.stack)) {
             PaperCard(Modifier.weight(1f)) { Column { Tag("Length"); Text("%.0f s".format(raw.durationMs / 1000.0), style = WrkType.figureInline, color = WrkColors.foreground) } }
