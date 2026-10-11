@@ -622,6 +622,99 @@
           }
         }
       ]
+    },
+    {
+      "name": "submit_episode_for",
+      "docs": [
+        "The same record, made by the task's validator on a contributor's behalf. The contributor signs nothing:",
+        "they proved who they are when they signed in, and only the validator can accept a take or pay anyone anyway."
+      ],
+      "discriminator": [
+        188,
+        104,
+        193,
+        128,
+        165,
+        61,
+        97,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "validator",
+          "docs": [
+            "The task's validator: pays rent and fees, and vouches for whose take this is."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "bounty"
+          ]
+        },
+        {
+          "name": "bounty",
+          "writable": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "episode",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  105,
+                  115,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bounty"
+              },
+              {
+                "kind": "arg",
+                "path": "episode_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "episode_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "manifest_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "contributor",
+          "type": "pubkey"
+        }
+      ]
     }
   ],
   "accounts": [

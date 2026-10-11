@@ -50,10 +50,12 @@ export async function runPipeline(
     anchorSignature: string | null;
     /** Set for email accounts: the server records the take on-chain for them. */
     custodialSecret?: Uint8Array | null;
+    /** Set for wallet accounts that signed in: the address the validator may record this take for. */
+    relayFor?: string | null;
   },
 ): Promise<void> {
   const { store, chain } = deps;
-  const { episodeId, bounty, manifest, streams, custodialSecret } = args;
+  const { episodeId, bounty, manifest, streams, custodialSecret, relayFor } = args;
   let anchorSignature = args.anchorSignature;
   try {
     const video = streams.find((s) => s.kind === "rgb");
@@ -113,6 +115,11 @@ export async function runPipeline(
       if (!anchorSignature && custodialSecret) {
         anchorSignature = await chain
           .anchor({ ref, episodeId, manifestHash: rec.manifest_hash, signerSecret: custodialSecret })
+          .catch(() => null);
+      } else if (!anchorSignature && relayFor && relayFor === rec.contributor) {
+        // A wallet that signed in owns this take; the validator records it for them, so they never approve anything.
+        anchorSignature = await chain
+          .anchorFor({ ref, episodeId, manifestHash: rec.manifest_hash, contributor: rec.contributor })
           .catch(() => null);
       }
       const verified = await chain

@@ -157,6 +157,33 @@ describe("wrk_escrow", () => {
     assert.deepEqual(Object.keys(ep.status), ["accepted"]); assert.equal(ep.scoreBps, 8700);
   });
 
+  it("lets the validator record a take for a contributor who signs nothing, and still pays that contributor", async () => {
+    const c = await newBounty();
+    const contributor = Keypair.generate(); // never signs, never holds SOL
+    const epId = `ep_${randomBytes(8).toString("hex")}`;
+    const [episode] = PublicKey.findProgramAddressSync([Buffer.from("episode"), c.bounty.toBuffer(), Buffer.from(sha(epId))], program.programId);
+    await program.methods.submitEpisodeFor(sha(epId), Array.from(randomBytes(32)), contributor.publicKey)
+      .accountsPartial({ validator: validator.publicKey, bounty: c.bounty, vault: c.vault, episode })
+      .signers([validator]).rpc();
+    const rec = await program.account.episode.fetch(episode);
+    assert.equal(rec.contributor.toBase58(), contributor.publicKey.toBase58());
+    await accept(c, { episode, contributor });
+    assert.equal(await bal(getAssociatedTokenAddressSync(mint, contributor.publicKey)), PER);
+  });
+
+  it("refuses to record a take for someone else unless the caller is the task's validator", async () => {
+    const c = await newBounty();
+    const thief = Keypair.generate();
+    await airdrop(thief.publicKey, 1);
+    const epId = `ep_${randomBytes(8).toString("hex")}`;
+    const [episode] = PublicKey.findProgramAddressSync([Buffer.from("episode"), c.bounty.toBuffer(), Buffer.from(sha(epId))], program.programId);
+    await fails(
+      program.methods.submitEpisodeFor(sha(epId), Array.from(randomBytes(32)), thief.publicKey)
+        .accountsPartial({ validator: thief.publicKey, bounty: c.bounty, vault: c.vault, episode }).signers([thief]).rpc(),
+      "ConstraintHasOne",
+    );
+  });
+
   it("can never pay a take twice", async () => {
     const c = await newBounty();
     const e = await submit(c);

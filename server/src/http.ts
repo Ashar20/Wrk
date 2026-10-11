@@ -432,6 +432,15 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           throw err;
         }
       }
+      // Proof that the app and this address belong together. Wallets check it before trusting the app's name.
+      if (req.method === "GET" && url.pathname === "/.well-known/assetlinks.json") {
+        const certs = (process.env.WRK_APP_CERT_SHA256 ?? "").split(",").map((x) => x.trim().replace(/:/g, "")).filter(Boolean)
+          .map((h) => h.toUpperCase().match(/.{2}/g)!.join(":"));
+        return send(res, 200, [{
+          relation: ["delegate_permission/common.handle_all_urls"],
+          target: { namespace: "android_app", package_name: process.env.WRK_ANDROID_PACKAGE ?? "com.wrk.app", sha256_cert_fingerprints: certs },
+        }]);
+      }
       if (req.method === "GET" && url.pathname === "/model") {
         return send(res, 200, JSON.parse(readFileSync(new URL("../model-results.json", import.meta.url), "utf8")));
       }
@@ -648,6 +657,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
           streams,
           anchorSignature: fields.anchor_signature || null,
           custodialSecret: me && !fields.anchor_signature ? accounts.secretFor(me.email) : null,
+          relayFor: me && me.kind === "wallet" && !fields.anchor_signature ? me.address : null,
         });
         return send(res, 202, publicEpisode(rec, devices));
       }

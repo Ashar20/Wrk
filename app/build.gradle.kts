@@ -19,6 +19,8 @@ android {
         // Validator service. Debug uses `adb reverse tcp:8850 tcp:8850`; release is set at publish time.
         buildConfigField("String", "SOLANA_RPC", "\"${project.findProperty("wrk.solanaRpc") ?: "https://api.devnet.solana.com"}\"")
         buildConfigField("String", "SOLANA_CLUSTER", "\"${project.findProperty("wrk.cluster") ?: "devnet"}\"")
+        // The address wallets verify the app against. Defaults to the validator's own address when that is https.
+        buildConfigField("String", "IDENTITY_URI", "\"${project.findProperty("wrk.identityUri") ?: project.findProperty("wrk.apiBase")?.toString()?.takeIf { it.startsWith("https://") } ?: "https://wrk.app"}\"")
         buildConfigField("String", "API_BASE", "\"${project.findProperty("wrk.apiBase") ?: "http://127.0.0.1:8850"}\"")
     }
 

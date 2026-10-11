@@ -148,6 +148,32 @@ describe("money moves only through the task's escrow", () => {
     expect((await api("/bounties")).body.bounties.map((b: any) => b.bounty_id)).toContain(r.body.bounty.bounty_id);
   });
 
+  async function walletSession() {
+    const crypto = await import("node:crypto");
+    const w = crypto.generateKeyPairSync("ed25519");
+    const bs58 = (await import("bs58")).default;
+    const address = bs58.encode(w.publicKey.export({ format: "der", type: "spki" }).subarray(-32));
+    const c = (await api("/auth/wallet/challenge", { json: { address } })).body;
+    const sig = crypto.sign(null, Buffer.from(c.message), w.privateKey).toString("base64");
+    return { address, ...(await api("/auth/wallet/verify", { json: { address, signature: sig } })).body };
+  }
+
+  it("records a signed-in wallet's take for them, so they approve nothing and are still paid", async () => {
+    const session = await walletSession();
+    const u = await upload("bounty_004", session.address, { token: session.token });
+    expect(u.status).toBe(202);
+    const v = await settled(u.id);
+    expect(v.accepted).toBe(true);
+    expect(chain.anchored.map((a) => a.contributor)).toContain(session.address);
+    expect(chain.payouts.map((p) => p.contributor)).toContain(session.address);
+  });
+
+  it("will not record a take for an address other than the one that signed in", async () => {
+    const session = await walletSession();
+    const u = await upload("bounty_004", wallet(), { token: session.token });
+    expect(u.status).toBe(403);
+  });
+
   it("keeps a wallet buyer's task hidden until their funding transaction lands", async () => {
     const buyer = await signIn("b2@example.com");
     // a wallet buyer has no custodial key; model one by posting through the session of a wallet user is covered in roles tests

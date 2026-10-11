@@ -51,9 +51,6 @@ internal fun explorerUrl(signature: String) = "https://explorer.solana.com/tx/$s
 fun SubmissionScreen(
     id: String,
     store: EpisodeStore,
-    /** True only when arriving straight from Submit: that is when the wallet is asked, not every time the take is opened later. */
-    justSubmitted: Boolean,
-    onApprovePayout: suspend () -> String?,
     onRetry: () -> Unit,
     onRecordAgain: () -> Unit,
     onDelete: () -> Unit,
@@ -65,17 +62,7 @@ fun SubmissionScreen(
     }
     val s = state
     val scope = rememberCoroutineScope()
-    var approving by remember { mutableStateOf(false) }
-    var approvalProblem by remember { mutableStateOf<String?>(null) }
     val uri = LocalUriHandler.current
-
-    // Wallet users: raise the wallet's approval once, right after Submit; after that the button is there if they dismissed it.
-    var autoTried by remember { mutableStateOf(!justSubmitted) }
-    LaunchedEffect(s?.needsPayoutApproval) {
-        if (s?.needsPayoutApproval == true && !autoTried) {
-            autoTried = true; approving = true; approvalProblem = onApprovePayout(); approving = false
-        }
-    }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WrkShape.gutter), verticalArrangement = Arrangement.spacedBy(WrkShape.stack)) {
         PaperButton("Done", onBack)
@@ -119,18 +106,6 @@ fun SubmissionScreen(
             else -> {
                 Steps(s)
                 Receipts(takeReceipts(s))
-                if (s.needsPayoutApproval) {
-                    FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Approve payout", style = WrkType.title, color = WrkColors.butterInk)
-                            Text("Your wallet needs to approve the record of this take so you can be paid.", style = WrkType.body, color = WrkColors.butterInk)
-                            approvalProblem?.let { Text(it, style = WrkType.body, color = WrkColors.butterInk) }
-                            ButterButton(if (approving) "Waiting for wallet…" else "Approve payout", {
-                                if (!approving) scope.launch { approving = true; approvalProblem = onApprovePayout(); approving = false }
-                            }, Modifier.fillMaxWidth())
-                        }
-                    }
-                }
                 if (s.waiting) {
                     FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -27,6 +27,8 @@ export interface ChainPort {
   // ---- a contributor's take -----------------------------------------------------------------------------------
   /** Records the take on-chain for an email account, whose key the server holds. Returns the signature. */
   anchor(a: { ref: EscrowRef; episodeId: string; manifestHash: string; signerSecret: Uint8Array }): Promise<string>;
+  /** Records the take on-chain on behalf of a contributor who holds their own key and signs nothing. Returns the signature. */
+  anchorFor(a: { ref: EscrowRef; episodeId: string; manifestHash: string; contributor: string }): Promise<string>;
   /** Same record, as a transaction for a contributor's own wallet to sign (base64, fees already covered). */
   buildAnchorTx(a: { ref: EscrowRef; episodeId: string; manifestHash: string; contributor: string }): Promise<string>;
   /** True when the take is on-chain for this contributor with exactly this manifest hash. */

@@ -199,6 +199,16 @@ export class EscrowClient {
     return this.send([await this.submitIx(ref, episodeId, manifestHash, contributorKey.publicKey)], [contributorKey]);
   }
 
+  /** The validator records the take for a contributor who holds their own key and signs nothing. */
+  async submitFor(ref: EscrowRef, episodeId: string, manifestHash: string, contributor: string) {
+    const bounty = this.bountyPda(ref);
+    const ix = await this.program.methods
+      .submitEpisodeFor(sha(episodeId), hexBytes(manifestHash), new PublicKey(contributor))
+      .accountsPartial({ validator: this.validator.publicKey, bounty, vault: this.vaultPda(ref), episode: this.episodePda(ref, episodeId) })
+      .instruction();
+    return this.send([ix], []);
+  }
+
   /** The contributor holds their own key: a transaction for their wallet, with fees and rent already covered. */
   async buildSubmitTx(ref: EscrowRef, episodeId: string, manifestHash: string, contributor: string) {
     return this.partial([await this.submitIx(ref, episodeId, manifestHash, new PublicKey(contributor))]);

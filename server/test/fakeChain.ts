@@ -52,6 +52,11 @@ export class FakeChain implements ChainPort {
     this.anchored.push({ episodeId, contributor });
     return `anchor-${this.anchored.length}`;
   }
+  async anchorFor({ ref, episodeId, manifestHash, contributor }: Parameters<ChainPort["anchorFor"]>[0]) {
+    this.submit(ref, episodeId, manifestHash, contributor);
+    this.anchored.push({ episodeId, contributor });
+    return `anchor-${this.anchored.length}`;
+  }
   async buildAnchorTx(a: Parameters<ChainPort["buildAnchorTx"]>[0]) {
     return Buffer.from(JSON.stringify({ kind: "submit", ...a })).toString("base64");
   }

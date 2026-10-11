@@ -43,6 +43,8 @@ export class SolanaChain implements ChainPort {
 
   anchor = ({ ref, episodeId, manifestHash, signerSecret }: Parameters<ChainPort["anchor"]>[0]) =>
     this.escrowClient.submit(ref, episodeId, manifestHash, Keypair.fromSecretKey(signerSecret));
+  anchorFor = ({ ref, episodeId, manifestHash, contributor }: Parameters<ChainPort["anchorFor"]>[0]) =>
+    this.escrowClient.submitFor(ref, episodeId, manifestHash, contributor);
   buildAnchorTx = ({ ref, episodeId, manifestHash, contributor }: Parameters<ChainPort["buildAnchorTx"]>[0]) =>
     this.escrowClient.buildSubmitTx(ref, episodeId, manifestHash, contributor);
   verifySubmission = ({ ref, episodeId, manifestHash, contributor }: Parameters<ChainPort["verifySubmission"]>[0]) =>

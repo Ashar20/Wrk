@@ -54,8 +54,6 @@ data class EpisodeState(
     /** Cost and health of the live hand overlay while recording. */
     val overlay: OverlayStats? = null,
 ) {
-    val needsPayoutApproval: Boolean get() = accountKind == "wallet" && status == EpisodeStatus.NotSubmitted && anchorSignature == null
-
     fun toJson() = JSONObject()
         .put("status", status.name).put("bountyId", bountyId).put("bountyTitle", bountyTitle)
         .put("perEpisodeUsd", perEpisodeUsd).put("createdAt", createdAt).put("accountKind", accountKind)

@@ -56,7 +56,7 @@ Verifier and Buyer need the validator to know who you are. Email accounts have t
 ### Payment accounts
 
 - **Email:** sign in with a code sent to your email. Wrk holds a payment account for you, anchors your takes, and covers fees. Nothing to install.
-- **Your own wallet:** connect any Mobile Wallet Adapter wallet. It signs its own anchor transaction.
+- **Your own wallet:** connect any Mobile Wallet Adapter wallet and sign one sign-in message. After that you approve nothing per take: the validator records each take in the task's escrow on your behalf (`submit_episode_for`, which only a task's validator can call) and pays your address when the take is accepted. Email accounts work the same way, with a key Wrk holds.
 
 Wrk never asks for or stores a seed phrase. Email accounts are custodial: Wrk holds their keys (encrypted at rest) until withdrawals or a wallet provider are added.
 

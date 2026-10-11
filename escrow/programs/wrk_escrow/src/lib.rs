@@ -72,31 +72,19 @@ pub mod wrk_escrow {
 
     /// Records a take as pending and reserves its payout. Fails if the vault can't cover every pending take.
     pub fn submit_episode(ctx: Context<SubmitEpisode>, episode_id: [u8; 32], manifest_hash: [u8; 32]) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
-        let b = &mut ctx.accounts.bounty;
-        require!(now <= b.deadline, EscrowError::BountyExpired);
+        record_take(
+            &mut ctx.accounts.bounty, &mut ctx.accounts.episode, &ctx.accounts.vault,
+            ctx.accounts.contributor.key(), episode_id, manifest_hash, ctx.bumps.episode,
+        )
+    }
 
-        let committed = (b.accepted as u64).checked_add(b.pending as u64).ok_or(EscrowError::Overflow)?;
-        require!(committed < b.max_episodes as u64, EscrowError::BountyFull);
-
-        let reserved = (b.pending as u64).checked_add(1).ok_or(EscrowError::Overflow)?
-            .checked_mul(b.per_episode).ok_or(EscrowError::Overflow)?;
-        require!(ctx.accounts.vault.amount >= reserved, EscrowError::Underfunded);
-
-        b.pending = b.pending.checked_add(1).ok_or(EscrowError::Overflow)?;
-
-        let e = &mut ctx.accounts.episode;
-        e.bounty = b.key();
-        e.contributor = ctx.accounts.contributor.key();
-        e.episode_id = episode_id;
-        e.manifest_hash = manifest_hash;
-        e.status = EpisodeStatus::Pending;
-        e.score_bps = 0;
-        e.submitted_at = now;
-        e.bump = ctx.bumps.episode;
-
-        emit!(EpisodeSubmitted { bounty: b.key(), episode: e.key(), contributor: e.contributor, manifest_hash });
-        Ok(())
+    /// The same record, made by the task's validator on a contributor's behalf. The contributor signs nothing:
+    /// they proved who they are when they signed in, and only the validator can accept a take or pay anyone anyway.
+    pub fn submit_episode_for(ctx: Context<SubmitEpisodeFor>, episode_id: [u8; 32], manifest_hash: [u8; 32], contributor: Pubkey) -> Result<()> {
+        record_take(
+            &mut ctx.accounts.bounty, &mut ctx.accounts.episode, &ctx.accounts.vault,
+            contributor, episode_id, manifest_hash, ctx.bumps.episode,
+        )
     }
 
     /// Validator only. Pays the contributor exactly `per_episode` from the vault.
@@ -193,6 +181,40 @@ pub mod wrk_escrow {
 
 // ---- accounts ------------------------------------------------------------------------------------------------------
 
+fn record_take<'info>(
+    b: &mut Account<'info, Bounty>,
+    e: &mut Account<'info, Episode>,
+    vault: &Account<'info, TokenAccount>,
+    contributor: Pubkey,
+    episode_id: [u8; 32],
+    manifest_hash: [u8; 32],
+    bump: u8,
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    require!(now <= b.deadline, EscrowError::BountyExpired);
+
+    let committed = (b.accepted as u64).checked_add(b.pending as u64).ok_or(EscrowError::Overflow)?;
+    require!(committed < b.max_episodes as u64, EscrowError::BountyFull);
+
+    let reserved = (b.pending as u64).checked_add(1).ok_or(EscrowError::Overflow)?
+        .checked_mul(b.per_episode).ok_or(EscrowError::Overflow)?;
+    require!(vault.amount >= reserved, EscrowError::Underfunded);
+
+    b.pending = b.pending.checked_add(1).ok_or(EscrowError::Overflow)?;
+
+    e.bounty = b.key();
+    e.contributor = contributor;
+    e.episode_id = episode_id;
+    e.manifest_hash = manifest_hash;
+    e.status = EpisodeStatus::Pending;
+    e.score_bps = 0;
+    e.submitted_at = now;
+    e.bump = bump;
+
+    emit!(EpisodeSubmitted { bounty: b.key(), episode: e.key(), contributor, manifest_hash });
+    Ok(())
+}
+
 #[derive(Accounts)]
 #[instruction(bounty_id: [u8; 32])]
 pub struct CreateBounty<'info> {
@@ -241,6 +263,24 @@ pub struct SubmitEpisode<'info> {
     pub vault: Account<'info, TokenAccount>,
     #[account(
         init, payer = payer, space = 8 + Episode::INIT_SPACE,
+        seeds = [b"episode", bounty.key().as_ref(), episode_id.as_ref()], bump
+    )]
+    pub episode: Account<'info, Episode>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(episode_id: [u8; 32])]
+pub struct SubmitEpisodeFor<'info> {
+    /// The task's validator: pays rent and fees, and vouches for whose take this is.
+    #[account(mut)]
+    pub validator: Signer<'info>,
+    #[account(mut, has_one = validator)]
+    pub bounty: Account<'info, Bounty>,
+    #[account(address = bounty.vault)]
+    pub vault: Account<'info, TokenAccount>,
+    #[account(
+        init, payer = validator, space = 8 + Episode::INIT_SPACE,
         seeds = [b"episode", bounty.key().as_ref(), episode_id.as_ref()], bump
     )]
     pub episode: Account<'info, Episode>,

@@ -248,7 +248,7 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     hasAccount = account != null,
                     onSubmit = { report ->
                         val id = service.submit(p, checkNotNull(account), report)
-                        nav.navigate("submission/$id?fresh=true") { popUpTo(nav.graph.id) { inclusive = true } }
+                        nav.navigate("submission/$id") { popUpTo(nav.graph.id) { inclusive = true } }
                     },
                     onNeedAccount = { nav.navigate("account") },
                     onDiscard = {
@@ -257,15 +257,10 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                     },
                 )
             }
-            composable(
-                "submission/{id}?fresh={fresh}",
-                arguments = listOf(androidx.navigation.navArgument("fresh") { type = androidx.navigation.NavType.BoolType; defaultValue = false }),
-            ) { e ->
+            composable("submission/{id}") { e ->
                 val id = e.arguments?.getString("id").orEmpty()
                 SubmissionScreen(
                     id = id, store = c.episodes,
-                    justSubmitted = e.arguments?.getBoolean("fresh") == true,
-                    onApprovePayout = { (account as? Account.Wallet)?.let { service.approvePayout(id, it, sender) } ?: "Connect your wallet first." },
                     onRetry = { service.retry(id) },
                     onRecordAgain = { nav.navigate("bounty/${c.episodes.state(id)?.bountyId}") { popUpTo("home") } },
                     onDelete = { c.episodes.delete(id); goHome() },

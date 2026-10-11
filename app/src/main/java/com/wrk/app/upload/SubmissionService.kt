@@ -29,37 +29,9 @@ class SubmissionService(private val context: Context, private val c: WrkContaine
             ),
         )
         c.pending = null
-        // Email accounts are anchored by Wrk on the server; wallet users approve it themselves, from the status screen.
-        if (account is Account.Email) UploadWorker.enqueue(context, built.episodeId)
+        // Wrk records every take on-chain for its contributor, whatever kind of account they signed in with.
+        UploadWorker.enqueue(context, built.episodeId)
         return built.episodeId
-    }
-
-    /**
-     * Wallet users: record the take in its task's escrow. Wrk builds the transaction and pays its fees; the wallet only
-     * signs. Then the upload starts. Returns a message to show the person, or null on success.
-     */
-    suspend fun approvePayout(id: String, account: Account.Wallet, sender: ActivityResultSender): String? {
-        val manifest = c.episodes.manifest(id) ?: return "This take is no longer on the phone."
-        val st = c.episodes.state(id) ?: return "This take is no longer on the phone."
-        if (st.anchorSignature != null) { UploadWorker.enqueue(context, id); return null }
-        val hash = (manifest.map["manifest_hash"] as com.wrk.app.episode.JsonStr).value
-        return when (val r = c.api.anchorTx(st.bountyId, id, hash, account.address)) {
-            AnchorTxResult.NotNeeded -> {
-                android.util.Log.i("WrkApprove", "validator needs no on-chain record")
-                c.episodes.update(id) { it.copy(anchorSignature = "not-required", error = null, waiting = false) }
-                UploadWorker.enqueue(context, id); null
-            }
-            is AnchorTxResult.Refused -> { android.util.Log.w("WrkApprove", "validator refused: ${r.message}"); r.message }
-            is AnchorTxResult.Retry -> { android.util.Log.w("WrkApprove", "couldn't get a transaction: ${r.message}"); r.message }
-            is AnchorTxResult.Ready -> when (val sent = c.wallet.signAndSend(sender, r.tx).also { android.util.Log.i("WrkApprove", "wallet answered: $it") }) {
-                is SendResult.Sent -> {
-                    c.episodes.update(id) { it.copy(anchorSignature = sent.signature, error = null, waiting = false) }
-                    UploadWorker.enqueue(context, id); null
-                }
-                SendResult.NoWalletInstalled -> "Your wallet app isn't available. Open it once, then try again."
-                is SendResult.Failed -> sent.message
-            }
-        }
     }
 
     /** Re-run the queue for an episode (after reconnecting, or after signing in again). */

@@ -40,7 +40,7 @@ sealed interface SendResult {
 class WalletManager(private val store: AccountStore, cluster: String = com.wrk.app.BuildConfig.SOLANA_CLUSTER) {
     private val adapter = MobileWalletAdapter(
         connectionIdentity = ConnectionIdentity(
-            identityUri = Uri.parse("https://wrk.app"),
+            identityUri = Uri.parse(com.wrk.app.BuildConfig.IDENTITY_URI),
             iconUri = Uri.parse("favicon.ico"),
             identityName = "Wrk",
         ),

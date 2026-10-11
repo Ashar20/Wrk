@@ -22,7 +22,7 @@ enum class ProcessOutcome {
 class SubmissionProcessor(
     private val store: EpisodeStore,
     private val api: EpisodeApi,
-    /** The sign-in token valid for the manifest's contributor, or null (wallet users). */
+    /** The sign-in token valid for the manifest's contributor, or null. */
     private val bearerFor: (contributor: String) -> String?,
     /** Signs each take with this phone's hardware key, when it has one. */
     private val signer: DeviceSigner? = null,

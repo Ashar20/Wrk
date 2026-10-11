@@ -44,8 +44,8 @@ class WrkContainer private constructor(private val app: Context) {
     init { episodes.pruneOrphans() }
 
     fun processor() = SubmissionProcessor(episodes, api, bearerFor = { contributor ->
-        // Only an email session for this very payment account may speak for it.
-        (accounts.load() as? Account.Email)?.takeIf { it.address == contributor }?.token
+        // Only a session for this very payment account may speak for it, whether it signed in with an email or a wallet.
+        accounts.load()?.takeIf { it.address == contributor }?.sessionToken
     }, signer = device)
 
     companion object {
