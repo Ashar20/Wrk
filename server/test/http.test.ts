@@ -107,9 +107,9 @@ describe("validator HTTP", () => {
 
   it("does not leak acceptance thresholds in the bounty feed", async () => {
     const { bounties } = await (await fetch(`${base}/bounties`)).json();
-    expect(bounties[0].bounty_id).toBe("bounty_004");
-    expect(bounties[0].per_episode_usdc).toBe(40);
-    expect(bounties[0]).not.toHaveProperty("min_plausibility");
+    const first = bounties.find((b: any) => b.bounty_id === "bounty_004");
+    expect(first.per_episode_usdc).toBe(40);
+    expect(first).not.toHaveProperty("min_plausibility");
   });
 
   it("accepts an anchored, plausible episode and pays exactly once", async () => {
