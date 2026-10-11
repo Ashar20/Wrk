@@ -66,6 +66,7 @@ createHttpServer({
   requireLocation: process.env.WRK_REQUIRE_LOCATION ? process.env.WRK_REQUIRE_LOCATION === "1" : undefined,
   store,
   chain,
+  sponsorSecret: chain ? Uint8Array.from(JSON.parse(readFileSync(process.env.WRK_TREASURY_KEYPAIR!, "utf8"))) : undefined,
   score: createWorkerScorer(),
   requireAnchor: process.env.WRK_REQUIRE_ANCHOR !== "0",
   validatorId: chain ? null : null,

@@ -26,16 +26,18 @@ class CaptureMailer implements Mailer {
 
 describe("money moves only through the task's escrow", () => {
   let base = ""; let server: ReturnType<typeof createHttpServer>;
+  let httpDeps: Parameters<typeof createHttpServer>[0];
   let chain: FakeChain; let bounties: BountyStore; let mailer: CaptureMailer; let plausibility: number | null; let scoreFails = false; let n = 0;
 
   beforeEach(async () => {
     chain = new FakeChain(); mailer = new CaptureMailer(); plausibility = 80; scoreFails = false; n = 0;
     bounties = new BountyStore(mkdtempSync(join(tmpdir(), "wrk-b-")));
     await chain.seed(bounties);
-    server = createHttpServer({
+    httpDeps = {
       store: new Store(mkdtempSync(join(tmpdir(), "wrk-e-"))), accounts: new Accounts(mkdtempSync(join(tmpdir(), "wrk-a-")), mailer), bounties, chain,
       score: async () => { if (scoreFails) throw new Error("no frames"); return scores(plausibility); }, requireAnchor: true,
-    });
+    };
+    server = createHttpServer(httpDeps);
     await new Promise<void>((r) => server.listen(0, r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
@@ -172,6 +174,18 @@ describe("money moves only through the task's escrow", () => {
     const session = await walletSession();
     const u = await upload("bounty_004", wallet(), { token: session.token });
     expect(u.status).toBe(403);
+  });
+
+  it("on devnet opens and funds a wallet buyer's task for them, so posting needs no wallet signature", async () => {
+    httpDeps.sponsorSecret = new Uint8Array(64);
+    const session = await walletSession();
+    const r = await api("/buyer/bounties", { token: session.token, json: { title: "Water a plant", task_spec: "Water a houseplant, first-person view.", per_episode_usdc: 30, min_episodes: 5 } });
+    expect(r.status).toBe(201); expect(r.body.escrow).toEqual({ funded: true });
+    const id = r.body.bounty.bounty_id;
+    expect((await api("/bounties")).body.bounties.map((b: any) => b.bounty_id)).toContain(id); // open to contributors at once
+    expect(chain.vaults.get(`${chain.validator}|${id}`)!.vault).toBe(150); // locked by Wrk, from test funds
+    const mine = (await api("/buyer/summary", { token: session.token })).body.bounties.find((b: any) => b.bounty_id === id);
+    expect(mine).toMatchObject({ owner_is_you: true });
   });
 
   it("keeps a wallet buyer's task hidden until their funding transaction lands", async () => {

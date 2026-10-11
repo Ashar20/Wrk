@@ -94,7 +94,7 @@ export function publicEpisode(e: EpisodeRecord, devices?: Devices) {
   };
 }
 
-export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean; requireLocation?: boolean; liveness?: LivenessChallenges; maxRegistrationsPerHour?: number };
+export type HttpDeps = PipelineDeps & { accounts: Accounts; bounties: BountyStore; devices?: Devices; requireDevice?: boolean; requireLocation?: boolean; liveness?: LivenessChallenges; maxRegistrationsPerHour?: number; /** Devnet: the key that funds and opens tasks for wallet buyers, so posting needs no wallet signature. */ sponsorSecret?: Uint8Array };
 
 const bearer = (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
 
@@ -384,6 +384,16 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         bounties.setEscrow(made.bounty_id, me.address, false);
         const withEscrow = bounties.get(made.bounty_id)!;
         try {
+          // Devnet: a wallet buyer's task is opened and funded with test tokens by Wrk, like the demo tasks, so posting
+          // never leaves the app. The task stays theirs; Wrk holds the escrow, so there is no refund to claim.
+          if (me.kind !== "email" && deps.sponsorSecret && chain.cluster !== "mainnet-beta" && process.env.WRK_SPONSOR_WALLET_BUYERS !== "0") {
+            const sref: EscrowRef = { buyer: chain.validator, bountyId: made.bounty_id };
+            bounties.setEscrow(made.bounty_id, chain.validator, false);
+            await chain.faucet(chain.validator, made.per_episode_usdc * made.min_episodes);
+            await chain.openEscrow({ bounty: bounties.get(made.bounty_id)!, ref: sref, buyerSecret: deps.sponsorSecret });
+            bounties.markFunded(made.bounty_id);
+            return send(res, 201, { bounty: redactThresholds(bounties.get(made.bounty_id)!), escrow: { funded: true } });
+          }
           await chain.faucet(me.address, made.per_episode_usdc * made.min_episodes); // devnet test funds for the buyer to lock up
           if (me.kind === "email") {
             const secret = accounts.secretFor(me.email);
