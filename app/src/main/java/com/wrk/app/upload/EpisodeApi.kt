@@ -35,6 +35,8 @@ data class EpisodeView(
     val streamsIntact: Boolean? = null,
     /** "attested" when the take was signed by a verified phone; otherwise "heuristic". Decided by the validator. */
     val trustLevel: String? = null,
+    /** The transaction that recorded this take on Solana, when the validator did it for the contributor. */
+    val anchorTx: String? = null,
     /** Present only for tasks with a live check. */
     val liveness: LiveResult? = null,
     /** The contributor's trust score (0 to 100) when the take was last looked at. */
@@ -191,6 +193,7 @@ class HttpEpisodeApi(
             status = o.optString("status", "scoring"),
             accepted = if (o.isNull("accepted")) null else o.optBoolean("accepted"),
             reasons = strings(o.optJSONArray("reasons")),
+            anchorTx = o.optJSONObject("anchor")?.optString("signature")?.takeIf { it.isNotBlank() },
             paymentSignature = pay?.optString("signature")?.takeIf { it.isNotBlank() },
             paidUsd = pay?.optDouble("amount_usdc"),
             paymentError = o.optString("payment_error").takeIf { it.isNotBlank() && it != "null" },

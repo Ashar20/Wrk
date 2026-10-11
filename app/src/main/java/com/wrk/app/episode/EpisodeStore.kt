@@ -29,6 +29,8 @@ data class EpisodeState(
     val reasons: List<String> = emptyList(),
     val paidUsd: Double = 0.0,
     val paymentSignature: String? = null,
+    /** The transaction that recorded the take on Solana, as reported by the validator. */
+    val recordTx: String? = null,
     val error: String? = null,
     /** Everything below is what the validator measured, never what the phone claimed. */
     val framing: Double? = null,
@@ -59,7 +61,7 @@ data class EpisodeState(
         .put("perEpisodeUsd", perEpisodeUsd).put("createdAt", createdAt).put("accountKind", accountKind)
         .put("anchorSignature", anchorSignature ?: JSONObject.NULL).put("waiting", waiting)
         .put("reasons", JSONArray(reasons)).put("paidUsd", paidUsd)
-        .put("paymentSignature", paymentSignature ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL)
+        .put("paymentSignature", paymentSignature ?: JSONObject.NULL).put("recordTx", recordTx ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL)
         .put("framing", framing ?: JSONObject.NULL).put("plausibility", plausibility ?: JSONObject.NULL)
         .put("handsVisiblePercent", handsVisiblePercent ?: JSONObject.NULL).put("motionCorr", motionCorr ?: JSONObject.NULL)
         .put("validatorScore", validatorScore ?: JSONObject.NULL).put("duplicateOf", duplicateOf ?: JSONObject.NULL)
@@ -73,7 +75,7 @@ data class EpisodeState(
             perEpisodeUsd = o.getDouble("perEpisodeUsd"), createdAt = o.getLong("createdAt"), accountKind = o.optString("accountKind", "email"),
             anchorSignature = o.optStringOrNull("anchorSignature"), waiting = o.optBoolean("waiting"),
             reasons = o.optJSONArray("reasons")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
-            paidUsd = o.optDouble("paidUsd", 0.0), paymentSignature = o.optStringOrNull("paymentSignature"),
+            paidUsd = o.optDouble("paidUsd", 0.0), paymentSignature = o.optStringOrNull("paymentSignature"), recordTx = o.optStringOrNull("recordTx"),
             error = o.optStringOrNull("error"),
             framing = o.optDoubleOrNull("framing"), plausibility = o.optDoubleOrNull("plausibility"),
             handsVisiblePercent = o.optDoubleOrNull("handsVisiblePercent"), motionCorr = o.optDoubleOrNull("motionCorr"),

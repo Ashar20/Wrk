@@ -64,6 +64,7 @@ export class SolanaChain implements ChainPort {
     const s = await this.escrowClient.state(ref);
     return { exists: s.exists, vaultUsdc: await this.escrowClient.toUsd(s.vaultRaw), pending: s.pending, accepted: s.accepted, deadline: s.deadline };
   }
+  vaultAddress = (ref: EscrowRef) => this.escrowClient.vaultPda(ref).toBase58();
   refund = ({ ref, buyerSecret }: Parameters<ChainPort["refund"]>[0]) => this.escrowClient.refund(ref, Keypair.fromSecretKey(buyerSecret));
   buildRefundTx = (ref: EscrowRef) => this.escrowClient.buildRefundTx(ref);
 

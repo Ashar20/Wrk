@@ -183,11 +183,13 @@ fun ReviewHistoryScreen(api: ReviewApi, modifier: Modifier = Modifier) {
         val items = r?.getOrNull()?.items.orEmpty()
         if (r?.isSuccess == true && items.isEmpty()) item { FieldCard(WrkColors.paperSunk, Modifier.fillMaxWidth()) { Text("Your decisions will show up here.", style = WrkType.body, color = WrkColors.muted) } }
         items(items, key = { it.episodeId }) { i ->
-            PaperCard(Modifier.fillMaxWidth()) {
+            val uri = androidx.compose.ui.platform.LocalUriHandler.current
+            PaperCard(Modifier.fillMaxWidth(), onClick = i.feeSignature?.let { sig -> { uri.openUri(txUrl(sig)) } }) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
                         Text(i.bountyTitle, style = WrkType.body.copy(fontWeight = FontWeight.SemiBold), color = WrkColors.foreground, maxLines = 1)
                         Tag(if (i.approved) "Approved" else "Rejected")
+                        if (i.feeSignature != null) Tag("Tap to see your fee on Solana", color = WrkColors.mintInk)
                     }
                     if (i.feeUsd > 0) Figure(i.feeUsd, WrkType.figureInline, WrkColors.positive)
                 }

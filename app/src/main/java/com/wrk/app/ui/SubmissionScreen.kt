@@ -93,10 +93,7 @@ fun SubmissionScreen(
                         if (s.trustLevel == "attested") Text("Signed by a verified phone", style = WrkType.label, color = WrkColors.onInkMuted)
                     }
                 }
-                s.paymentSignature?.let { sig ->
-                    PaperButton("View receipt", { uri.openUri(explorerUrl(sig)) }, Modifier.fillMaxWidth())
-                    Text("Advanced: ${sig.take(10)}…${sig.takeLast(6)}", style = WrkType.data, color = WrkColors.subtle)
-                }
+                Receipts(takeReceipts(s))
                 ResultPanels(id, s, store)
                 InkButton("Record another", onRecordAgain, Modifier.fillMaxWidth())
             }
@@ -119,6 +116,7 @@ fun SubmissionScreen(
             }
             else -> {
                 Steps(s)
+                Receipts(takeReceipts(s))
                 if (s.needsPayoutApproval) {
                     FieldCard(WrkColors.butter, Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -168,3 +166,9 @@ private fun Steps(s: EpisodeState) {
         }
     }
 }
+
+/** The transactions behind a take, in the order they happened. */
+internal fun takeReceipts(s: EpisodeState) = listOfNotNull(
+    (s.recordTx ?: s.anchorSignature)?.let { Receipt("Take recorded on Solana", it) },
+    s.paymentSignature?.let { Receipt("Payment to you", it) },
+)

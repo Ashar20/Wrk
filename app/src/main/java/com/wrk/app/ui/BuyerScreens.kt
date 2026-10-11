@@ -133,6 +133,7 @@ private fun BuyerBountyCard(b: BuyerBounty, onFinishFunding: () -> Unit, onClick
 @Composable
 fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onSignAndSend: suspend (String) -> String?, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val explorer = androidx.compose.ui.platform.LocalUriHandler.current
     // Starts from what was tapped, then keeps itself fresh as takes arrive.
     val b by produceState(first) {
         while (true) {
@@ -168,6 +169,7 @@ fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onSignAndSend: suspend 
                     Tag("Locked in escrow")
                     Figure(e.lockedUsd ?: 0.0, WrkType.figureLead, knockDownCents = true)
                     Tag(if (e.funded) "Held by the task's on-chain vault. Only accepted takes can be paid from it." else "Waiting for funding")
+                    e.vault?.let { v -> PaperButton("View the vault on Solana Explorer", { explorer.openUri(addressUrl(v)) }, Modifier.fillMaxWidth()) }
                     if (e.deadline > 0) Tag("Unspent funds can be taken back after " + java.text.DateFormat.getDateInstance().format(java.util.Date(e.deadline * 1000)))
                 }
             }

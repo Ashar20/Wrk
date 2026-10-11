@@ -29,7 +29,7 @@ data class BuyerBounty(
 )
 
 /** What the task's on-chain vault holds. [lockedUsd] is null if the chain couldn't be read just now. */
-data class EscrowStatus(val funded: Boolean, val lockedUsd: Double?, val deadline: Long, val canRefund: Boolean)
+data class EscrowStatus(val funded: Boolean, val lockedUsd: Double?, val deadline: Long, val canRefund: Boolean, val vault: String? = null)
 
 data class BuyerSummary(val totalSpendUsd: Double, val bounties: List<BuyerBounty>)
 
@@ -47,7 +47,7 @@ fun parseBuyerSummary(o: JSONObject): BuyerSummary {
             spendUsd = b.optDouble("spend_usdc"), avgPlausibility = if (b.isNull("avg_plausibility")) null else b.optDouble("avg_plausibility"),
             histogram = List(5) { i -> h?.optInt(i) ?: 0 },
             escrow = b.optJSONObject("escrow")?.let { e ->
-                EscrowStatus(e.optBoolean("funded"), if (e.isNull("locked_usdc")) null else e.optDouble("locked_usdc"), e.optLong("deadline"), e.optBoolean("can_refund"))
+                EscrowStatus(e.optBoolean("funded"), if (e.isNull("locked_usdc")) null else e.optDouble("locked_usdc"), e.optLong("deadline"), e.optBoolean("can_refund"), e.optString("vault").takeIf { v -> v.isNotBlank() && v != "null" })
             },
         )
     })

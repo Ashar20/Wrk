@@ -46,6 +46,8 @@ export interface ChainPort {
   /** The same, as a transaction for a buyer's own wallet to sign. */
   buildOpenEscrowTx(a: { bounty: Bounty; ref: EscrowRef }): Promise<string>;
   escrow(ref: EscrowRef): Promise<EscrowInfo>;
+  /** The address of the task's vault, so anyone can look at it on an explorer. Optional: test chains have none. */
+  vaultAddress?(ref: EscrowRef): string;
   /** After the deadline: the buyer takes back what isn't reserved. */
   refund(a: { ref: EscrowRef; buyerSecret: Uint8Array }): Promise<string>;
   buildRefundTx(ref: EscrowRef): Promise<string>;

@@ -17,7 +17,7 @@ data class ReviewItem(
     val trustLevel: String? = null,
 )
 
-data class ReviewHistoryItem(val episodeId: String, val bountyTitle: String, val approved: Boolean, val decidedAt: Long, val feeUsd: Double)
+data class ReviewHistoryItem(val episodeId: String, val bountyTitle: String, val approved: Boolean, val decidedAt: Long, val feeUsd: Double, val feeSignature: String? = null)
 data class ReviewHistory(val earnedUsd: Double, val items: List<ReviewHistoryItem>)
 
 private fun JSONObject.dbl(k: String): Double? = if (!has(k) || isNull(k)) null else getDouble(k)
@@ -50,7 +50,7 @@ class ReviewApi(private val api: JsonApi) {
         val a = o.getJSONArray("items")
         return ReviewHistory(o.optDouble("earned_usdc", 0.0), List(a.length()) {
             val i = a.getJSONObject(it)
-            ReviewHistoryItem(i.getString("episode_id"), i.getString("bounty_title"), i.getString("decision") == "approved", i.optLong("decided_at"), i.optDouble("fee_usdc", 0.0))
+            ReviewHistoryItem(i.getString("episode_id"), i.getString("bounty_title"), i.getString("decision") == "approved", i.optLong("decided_at"), i.optDouble("fee_usdc", 0.0), i.optString("fee_signature").takeIf { s -> s.isNotBlank() && s != "null" })
         })
     }
 

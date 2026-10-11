@@ -449,6 +449,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
               ? {
                   funded: !!b.escrow?.funded,
                   locked_usdc: info ? Math.round(info.vaultUsdc * 100) / 100 : null,
+                  vault: chain?.vaultAddress?.(ref) ?? null,
                   deadline: b.deadline,
                   can_refund: !!info && b.escrow!.buyer === me.address && Date.now() / 1000 > info.deadline && info.vaultUsdc - reserved > 1e-9,
                 }

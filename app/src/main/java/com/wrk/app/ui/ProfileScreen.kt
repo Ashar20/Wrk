@@ -150,11 +150,13 @@ fun ProfileScreen(
                 item { Text("Reviews", style = WrkType.title, color = WrkColors.foreground, modifier = Modifier.padding(top = 8.dp)) }
                 if (reviews?.items.isNullOrEmpty()) item { FieldCard(WrkColors.paperSunk, Modifier.fillMaxWidth()) { Text("Your decisions will appear here.", style = WrkType.body, color = WrkColors.muted) } }
                 items(reviews?.items.orEmpty(), key = { it.episodeId }) { r ->
-                    PaperCard(Modifier.fillMaxWidth()) {
+                    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                    PaperCard(Modifier.fillMaxWidth(), onClick = r.feeSignature?.let { sig -> { uri.openUri(txUrl(sig)) } }) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(Modifier.weight(1f)) {
                                 Text(r.bountyTitle, style = WrkType.body.copy(fontWeight = FontWeight.SemiBold), color = WrkColors.foreground, maxLines = 1)
                                 Tag("${dates.format(Date(r.decidedAt * 1000))} · ${if (r.approved) "Approved" else "Rejected"}")
+                                if (r.feeSignature != null) Tag("Tap to see your fee on Solana", color = WrkColors.mintInk)
                             }
                             if (r.feeUsd > 0) Figure(r.feeUsd, WrkType.figureInline, WrkColors.positive)
                         }
