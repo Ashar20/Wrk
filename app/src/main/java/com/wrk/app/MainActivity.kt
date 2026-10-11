@@ -117,7 +117,13 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
     val liveService = remember { LiveCheckService(c) }
     val trustApi = remember { TrustApi(JsonApi(BuildConfig.API_BASE, { null })) }
     // The store is the source of truth for the session, so every call sees a fresh token.
-    val json = remember { JsonApi(BuildConfig.API_BASE, { c.accounts.load()?.sessionToken }) }
+    // A wallet whose session the validator no longer knows signs once more to get a new one; email accounts sign in again.
+    val json = remember {
+        JsonApi(BuildConfig.API_BASE, { c.accounts.load()?.sessionToken }, refresh = {
+            val a = c.accounts.load()
+            if (a is Account.Wallet) runCatching { c.accounts.save(Account.Wallet(a.address, sessions.walletToken(sender, a.address))) }.isSuccess else false
+        })
+    }
     val reviewApi = remember { ReviewApi(json) }
     val buyerApi = remember { BuyerApi(json) }
 

@@ -174,6 +174,8 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
   };
 
   const server = createServer(async (req, res) => {
+    // One line per request that didn't go well, so a failing phone leaves a trail.
+    res.on("finish", () => { if (res.statusCode >= 400 && !process.env.VITEST) console.log(`[http] ${req.method} ${(req.url ?? "").split("?")[0]} -> ${res.statusCode}`); });
     try {
       const url = new URL(req.url ?? "/", "http://x");
       if (req.method === "OPTIONS") return send(res, 204, {});

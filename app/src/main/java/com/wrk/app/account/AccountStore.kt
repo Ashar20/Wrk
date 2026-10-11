@@ -41,7 +41,10 @@ class AccountStore(private val kv: KeyValue) {
     }
 
     fun save(a: Account) {
+        // Reconnecting the same wallet must not throw away the session it already earned.
+        val kept = (a as? Account.Wallet)?.takeIf { it.token == null }?.let { w -> (load() as? Account.Wallet)?.takeIf { it.address == w.address }?.token }
         clear(keepWalletToken = true)
+        if (kept != null) { kv.put("type", "wallet"); kv.put("address", a.address); kv.put("token", kept); return }
         when (a) {
             is Account.Email -> { kv.put("type", "email"); kv.put("email", a.email); kv.put("address", a.address); kv.put("token", a.token) }
             is Account.Wallet -> { kv.put("type", "wallet"); kv.put("address", a.address); a.token?.let { kv.put("token", it) } }

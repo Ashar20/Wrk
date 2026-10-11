@@ -19,6 +19,8 @@ class ApiException(message: String, val status: Int = 0) : Exception(message) {
 class JsonApi(
     private val baseUrl: String,
     private val token: () -> String?,
+    /** Asked once when the validator says the session is gone; true means a fresh one is in place and the call is retried. */
+    private val refresh: (suspend () -> Boolean)? = null,
     private val client: OkHttpClient = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build(),
 ) {
     suspend fun get(path: String): JSONObject = call(path, null)
@@ -27,7 +29,12 @@ class JsonApi(
     fun authHeader(): Map<String, String> = token()?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
     fun url(path: String) = baseUrl + path
 
-    private suspend fun call(path: String, body: JSONObject?): JSONObject = withContext(Dispatchers.IO) {
+    private suspend fun call(path: String, body: JSONObject?): JSONObject =
+        try { send(path, body) } catch (e: ApiException) {
+            if (e.signedOut && refresh?.invoke() == true) send(path, body) else throw e
+        }
+
+    private suspend fun send(path: String, body: JSONObject?): JSONObject = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(baseUrl + path).apply {
             token()?.let { header("Authorization", "Bearer $it") }
             if (body != null) post(body.toString().toRequestBody("application/json".toMediaType()))
