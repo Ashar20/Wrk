@@ -642,7 +642,7 @@ MVP programs:
 Earliest demo shortcut:
 
 - use a Solana memo transaction containing the episode hash and bounty id
-- keep the escrow simulated or use a simple token transfer
+- start with a simple token transfer before a full escrow program
 - migrate to full programs once the capture loop works
 
 ### Off-Chain
@@ -876,7 +876,7 @@ Aggregator -> global model hash -> eval metric -> payout
 
 MVP demo option:
 
-- simulate two organizations
+- stand up two mock organizations
 - split captured episodes into two private partitions
 - train local dynamics heads
 - aggregate with FedAvg

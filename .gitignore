@@ -23,3 +23,6 @@ escrow/node_modules/
 escrow/keys/
 escrow/.anchor/
 server/hosted.env
+.gstack/
+video/
+*.mp4
