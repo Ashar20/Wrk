@@ -3,7 +3,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certi
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY stubs ./stubs
-RUN npm ci --omit=dev --ignore-scripts=false && npm i --no-save tsx
+RUN npm ci --omit=dev --legacy-peer-deps && npm i --no-save --legacy-peer-deps tsx
 COPY tsconfig.json ./
 COPY src ./src
 COPY model-results.json ./
