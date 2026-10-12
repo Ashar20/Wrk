@@ -5,6 +5,7 @@ import { runPipeline, type PipelineDeps } from "./pipeline";
 import { AuthError, type Accounts } from "./accounts";
 import { BountyInputError, type BountyStore } from "./bountyStore";
 import { dataset, summary, visibleToBuyer } from "./buyer";
+import { zip } from "./zip";
 import { decide, historyFor, pendingFor, queueItem, ReviewError } from "./review";
 import { escrowRef } from "./pipeline";
 import { LivenessChallenges, LivenessError } from "./liveness";
@@ -477,6 +478,40 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         }));
         return send(res, 200, { ...sum, bounties: rows });
       }
+      // The accepted takes themselves: video, motion and the sealed manifest. Only the task's own buyer may have them.
+      const bb = /^\/buyer\/bounties\/([\w-]+)\/bundle$/.exec(url.pathname);
+      if (req.method === "GET" && bb) {
+        const me = requireSession(req);
+        const b = bounties.get(bb[1]);
+        if (!b || b.owner !== me.address) return send(res, 404, { error: "No such task." });
+        const accepted = store.list().filter((e) => e.bounty_id === b.bounty_id && e.status === "scored" && e.accepted);
+        const files: { name: string; data: Uint8Array }[] = [];
+        for (const e of accepted) {
+          const video = store.readBlob(e.episode_id, "rgb"), imu = store.readBlob(e.episode_id, "imu");
+          if (!video || !imu) continue;
+          files.push({ name: `${e.episode_id}/video.mp4`, data: video }, { name: `${e.episode_id}/imu.bin`, data: imu });
+          const manifest = store.readBlob(e.episode_id, "manifest.json");
+          if (manifest) files.push({ name: `${e.episode_id}/manifest.json`, data: manifest });
+        }
+        const index = dataset(store.list(), b, devices ? (a) => devices.report(a).score : undefined);
+        files.unshift(
+          { name: "index.json", data: Buffer.from(JSON.stringify(index, null, 2)) },
+          { name: "README.txt", data: Buffer.from([
+            `${b.title}`, `License: ${b.license}`, "",
+            "Each folder is one accepted take: video.mp4 (first-person video), imu.bin (the phone's motion sensors, see below),",
+            "and manifest.json (what the phone declared, sealed with a SHA-256 hash). index.json lists every take with its",
+            "scores, the Solana transaction that recorded it and the one that paid for it.",
+            "",
+            "imu.bin: 6-byte magic WMIMU1, version byte, reserved byte, f64 start time (ms), u32 sample count, then 28 bytes per",
+            "sample (f32 t_ms, ax, ay, az, rx, ry, rz), all little-endian.",
+            "",
+            "The manifest includes the contributor's payment address and an approximate area (about 1 km). Handle both as personal data.",
+          ].join("\n")) },
+        );
+        const body = zip(files);
+        res.writeHead(200, { "content-type": "application/zip", "content-disposition": `attachment; filename="${b.bounty_id}.zip"`, "content-length": body.length });
+        return res.end(body);
+      }
       const bd = /^\/buyer\/bounties\/([\w-]+)\/dataset$/.exec(url.pathname);
       if (req.method === "GET" && bd) {
         const me = requireSession(req);
@@ -641,6 +676,7 @@ export function createHttpServer(deps: HttpDeps): Server & { sweepIssued: (now?:
         }
 
         for (const s of streams) store.saveBlob(episodeId, s.kind, s.bytes);
+        store.saveBlob(episodeId, "manifest.json", Buffer.from(JSON.stringify(manifest))); // the sealed manifest, for the buyer's bundle
         const rec = store.put({
           episode_id: episodeId,
           bounty_id: bounty.bounty_id,

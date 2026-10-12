@@ -80,6 +80,7 @@ fun ReviewScreen(
             modifier = Modifier.fillMaxWidth().height(360.dp).clip(RoundedCornerShape(WrkShape.panel)),
         ) }
 
+        Tag("Check the video: no faces, screens or private papers. If there are, delete this take and record it again.")
         Row(horizontalArrangement = Arrangement.spacedBy(WrkShape.stack)) {
             PaperCard(Modifier.weight(1f)) { Column { Tag("Length"); Text("%.0f s".format(raw.durationMs / 1000.0), style = WrkType.figureInline, color = WrkColors.foreground) } }
             PaperCard(Modifier.weight(1f)) { Column { Tag("Motion recorded"); Text(if (tooStill) "Too still" else "Good", style = WrkType.figureInline, color = WrkColors.foreground) } }

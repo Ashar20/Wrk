@@ -142,3 +142,10 @@ What this does not stop: a person who buys several phones and spreads them far e
 - Raw video lives on the validator's disk; there's no content-addressed storage or deletion policy yet. On Render's free tier that disk is temporary: videos, tasks posted by buyers and email sign-ins are lost on restart.
 - The world-model numbers come from a small model trained on 5 takes and tested on 1. At that size it doesn't yet beat the simple baseline; the curve is there to show how error falls as takes are added.
 - The device and live checks are tested with synthetic chains and signals plus one real registration. They have not yet been run end to end with a person following the prompts on the phone.
+
+
+## Privacy and what buyers receive
+
+- Before the first recording the app shows who can see a take: Wrk's automatic checks, a reviewer if the task asks for one, and the buyer once the take is accepted. It says buyers also see the contributor's payment address and an approximate area (about 1 km), and tells people to keep faces, screens and documents out of frame.
+- Wrk does not blur faces or text yet. That is the main privacy gap; the consent screen says so plainly.
+- A buyer can download a task's accepted takes as a zip: each take's video, its motion file (`imu.bin`, format described in the zip's README) and the sealed manifest, plus an index with scores and the Solana transactions that recorded and paid it. Only the buyer who posted the task can download it, refused takes are never included, and the demo tasks' takes are not downloadable.

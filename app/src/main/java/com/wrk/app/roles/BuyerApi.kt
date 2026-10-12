@@ -127,5 +127,8 @@ class BuyerApi(private val api: JsonApi) {
     }
 
     /** The accepted takes' provenance and scores as JSON text, ready to share. */
+    /** The accepted takes themselves (video, motion, manifest) as a zip, saved to [dest]. Only the task's own buyer may. */
+    suspend fun bundle(id: String, dest: java.io.File) = api.download("/buyer/bounties/$id/bundle", dest)
+
     suspend fun dataset(id: String): String = api.get("/buyer/bounties/$id/dataset").toString(2)
 }

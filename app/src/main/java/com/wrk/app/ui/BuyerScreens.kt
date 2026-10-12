@@ -143,6 +143,7 @@ fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onSignAndSend: suspend 
     }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var downloading by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WrkShape.gutter), verticalArrangement = Arrangement.spacedBy(WrkShape.stack)) {
@@ -213,6 +214,27 @@ fun BuyerBountyScreen(first: BuyerBounty, api: BuyerApi, onSignAndSend: suspend 
             }
         }, Modifier.fillMaxWidth(), enabled = !busy && b.accepted > 0)
         if (b.accepted == 0) Tag("The manifest lists accepted takes, so it unlocks after the first one.")
+        if (b.ownerIsYou) {
+            PaperButton(if (downloading) "Downloading…" else "Download the takes (zip)", {
+                if (downloading) return@PaperButton
+                scope.launch {
+                    downloading = true; problem = null
+                    try {
+                        val f = withContext(Dispatchers.IO) { File(File(context.cacheDir, "shared").apply { mkdirs() }, "wrk-${b.id}.zip") }
+                        api.bundle(b.id, f)
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", f)
+                        context.startActivity(
+                            Intent.createChooser(
+                                Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                "Save or share the takes",
+                            ),
+                        )
+                    } catch (e: ApiException) { problem = e.message } catch (e: Exception) { problem = "Couldn't download the takes. Try again." }
+                    finally { downloading = false }
+                }
+            }, Modifier.fillMaxWidth())
+            Tag("Video and motion for every accepted take, plus a manifest to check each one against Solana. Faces and homes can appear in these: handle them as personal data.")
+        }
     }
 }
 

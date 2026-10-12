@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -231,6 +232,28 @@ describe("verifier, buyer and wallet roles", () => {
     expect(made.body.bounty).not.toHaveProperty("min_plausibility");
     const feed = (await api("/bounties")).body.bounties.map((b: any) => b.bounty_id);
     expect(feed).toContain(made.body.bounty.bounty_id);
+  });
+
+  it("gives a buyer a zip of their accepted takes' video and motion, and nobody else", async () => {
+    const buyer = await signIn("buyer4@example.com");
+    const other = await signIn("buyer5@example.com");
+    const made = (await api("/buyer/bounties", { method: "POST", token: buyer.token, json: { title: "Fold a shirt", task_spec: "Fold a shirt on a bed, first-person view.", per_episode_usdc: 10, min_episodes: 5 } })).body.bounty;
+    plausibility = 90; const ok = await submit(made.bounty_id); await settled(ok.id);
+    plausibility = 5; const bad = await submit(made.bounty_id); await settled(bad.id);
+
+    const res = await fetch(`${base}/buyer/bounties/${made.bounty_id}/bundle`, { headers: { authorization: `Bearer ${buyer.token}` } });
+    expect(res.status).toBe(200); expect(res.headers.get("content-type")).toBe("application/zip");
+    const bytes = Buffer.from(await res.arrayBuffer());
+    expect(bytes.subarray(0, 4).toString("hex")).toBe("504b0304");
+    const dir = mkdtempSync(join(tmpdir(), "wrk-zip-")); const file = join(dir, "b.zip"); writeFileSync(file, bytes);
+    const listing = execFileSync("unzip", ["-l", file]).toString();
+    expect(execFileSync("unzip", ["-tq", file]).toString()).toMatch(/No errors/);
+    expect(listing).toContain(`${ok.id}/video.mp4`); expect(listing).toContain(`${ok.id}/imu.bin`); expect(listing).toContain("index.json"); expect(listing).toContain("README.txt");
+    expect(listing).not.toContain(bad.id); // refused takes never leave the validator
+
+    expect((await fetch(`${base}/buyer/bounties/${made.bounty_id}/bundle`, { headers: { authorization: `Bearer ${other.token}` } })).status).toBe(404);
+    expect((await fetch(`${base}/buyer/bounties/${made.bounty_id}/bundle`)).status).toBe(401);
+    expect((await fetch(`${base}/buyer/bounties/bounty_004/bundle`, { headers: { authorization: `Bearer ${buyer.token}` } })).status).toBe(404); // demo tasks' takes are not for download
   });
 
   it("shows a buyer their results, spend and score spread, and only their own datasets", async () => {

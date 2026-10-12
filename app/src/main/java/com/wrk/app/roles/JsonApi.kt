@@ -26,6 +26,22 @@ class JsonApi(
     suspend fun get(path: String): JSONObject = call(path, null)
     suspend fun post(path: String, body: JSONObject): JSONObject = call(path, body)
 
+    /** Saves a binary response (a zip of takes) to [dest]. Longer allowance than the JSON calls: these files are big. */
+    suspend fun download(path: String, dest: java.io.File) = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(baseUrl + path).apply { token()?.let { header("Authorization", "Bearer $it") } }.build()
+        try {
+            client.newBuilder().callTimeout(180, TimeUnit.SECONDS).build().newCall(req).execute().use { r ->
+                if (!r.isSuccessful) {
+                    val msg = runCatching { JSONObject(r.body?.string().orEmpty()).optString("error") }.getOrDefault("")
+                    throw ApiException(msg.ifBlank { if (r.code == 401) "Sign in again to continue." else "Something went wrong (${r.code}). Try again." }, r.code)
+                }
+                dest.outputStream().use { out -> r.body!!.byteStream().copyTo(out) }
+            }
+        } catch (e: IOException) {
+            throw ApiException("Can't reach Wrk. Check your connection and try again.")
+        }
+    }
+
     fun authHeader(): Map<String, String> = token()?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
     fun url(path: String) = baseUrl + path
 

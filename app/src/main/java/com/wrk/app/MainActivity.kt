@@ -238,7 +238,9 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
             }
             composable("capture/{id}") { e ->
                 val b = bounties.firstOrNull { it.id == e.arguments?.getString("id") }
-                if (b != null) CaptureScreen(
+                var informed by remember { mutableStateOf(c.accounts.privacyAccepted) }
+                if (b != null && !informed) com.wrk.app.ui.PrivacyScreen(onAccept = { c.accounts.privacyAccepted = true; informed = true }, onBack = { nav.popBackStack() })
+                else if (b != null) CaptureScreen(
                     b, c,
                     onCaptured = { c.pending = it; nav.navigate("review") { popUpTo("bounty/${b.id}") } },
                     onBack = { nav.popBackStack() },
@@ -310,7 +312,9 @@ private fun WrkApp(c: WrkContainer, sender: ActivityResultSender) {
                 )
             }
             composable("livecheck") {
-                CaptureScreen(
+                var informed by remember { mutableStateOf(c.accounts.privacyAccepted) }
+                if (!informed) com.wrk.app.ui.PrivacyScreen(onAccept = { c.accounts.privacyAccepted = true; informed = true }, onBack = { nav.popBackStack() })
+                else CaptureScreen(
                     LiveCheckTask, c,
                     onCaptured = { c.pending = it; nav.navigate("livecheck/run") { popUpTo("livecheck") { inclusive = true } } },
                     onBack = { nav.popBackStack() },

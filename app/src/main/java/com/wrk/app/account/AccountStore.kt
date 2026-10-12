@@ -62,6 +62,11 @@ class AccountStore(private val kv: KeyValue) {
         get() = kv.get("role")?.let { r -> Role.entries.firstOrNull { it.name == r } }
         set(v) { if (v == null) kv.remove("role") else kv.put("role", v.name) }
 
+    /** Whether this person has read what happens to a take before recording their first one. Kept on this phone. */
+    var privacyAccepted: Boolean
+        get() = kv.get("privacy_v1") == "yes"
+        set(v) { if (v) kv.put("privacy_v1", "yes") else kv.remove("privacy_v1") }
+
     /** What the person likes to be called here. Kept on this phone, and per account so switching accounts never carries a name over. */
     fun displayName(address: String): String? = kv.get("display_name:$address")
 
